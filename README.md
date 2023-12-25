@@ -1,1 +1,1 @@
-# etcdRegistrar
+# etcd-registrar
