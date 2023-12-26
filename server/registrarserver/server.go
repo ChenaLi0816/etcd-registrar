@@ -44,9 +44,9 @@ func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequ
 	if name == "" || addr == "" {
 		return nil, errors.New("string err: name or address is null")
 	}
-	v, exist := s.getKeyByValue(ctx, name, addr)
+	v, err := s.getKeyByValue(ctx, name, addr)
 	// TODO 分布式锁，有可能两边读的时候都没有，写的时候都写了
-	if exist {
+	if err == nil {
 		return &pb.RegisterResponse{
 			ServiceName: v,
 		}, nil
@@ -76,70 +76,13 @@ func (s *EtcdRegistrarServer) Logout(ctx context.Context, svc *pb.Service) (*pb.
 	return &pb.Reply{}, nil
 }
 
-func (s *EtcdRegistrarServer) putKey(ctx context.Context, key, value string, leaseTime int64) error {
-	res, err := s.Cli.Grant(ctx, leaseTime)
-	if err != nil {
-		return fmt.Errorf("grant err: %w", err)
-	}
-	leaseID := res.ID
-	_, err = s.Cli.Put(ctx, key, value, clientv3.WithLease(leaseID))
-	if err != nil {
-		return fmt.Errorf("put err: %w", err)
-	}
-	return nil
-}
-
-func (s *EtcdRegistrarServer) getValueByKey(ctx context.Context, key string) (string, clientv3.LeaseID, bool) {
-	resp, _ := s.Cli.Get(ctx, key)
-	if len(resp.Kvs) == 0 {
-		return "", 0, false
-	}
-	return string(resp.Kvs[0].Value), clientv3.LeaseID(resp.Kvs[0].Lease), true
-}
-
-func (s *EtcdRegistrarServer) getKeyByValue(ctx context.Context, prefix, value string) (string, bool) {
-	resp, _ := s.Cli.Get(ctx, prefix, clientv3.WithPrefix())
-	if len(resp.Kvs) == 0 {
-		return "", false
-	}
-	for _, v := range resp.Kvs {
-		if string(v.Value) == value {
-			return string(v.Key), true
-		}
-	}
-	return "", false
-}
-
-func (s *EtcdRegistrarServer) deleteKey(ctx context.Context, key, value string) error {
-	getv, leaseID, exist := s.getValueByKey(ctx, key)
-	if !exist {
-		return errors.New("get err: key don't exist")
-	}
-	if value != getv {
-		return errors.New("match err: address don't match")
-	}
-	// 撤销租约
-	if leaseID != 0 {
-		_, err := s.Cli.Revoke(ctx, leaseID)
-		if err != nil {
-			return fmt.Errorf("revoke lease err: %w", err)
-		}
-	}
-	// TODO 删除过程中有别的服务调用
-	_, err := s.Cli.Delete(ctx, key)
-	if err != nil {
-		return fmt.Errorf("delete err: %w", err)
-	}
-	return nil
-}
-
 func (s *EtcdRegistrarServer) HeartbeatActive(ctx context.Context, svc *pb.Service) (*pb.Reply, error) {
 	name := svc.GetName()
 	addr := svc.GetAddress()
-	getv, leaseID, exist := s.getValueByKey(ctx, name)
-	if !exist {
-		log.Println("get err: key", name, "don't exist")
-		return nil, errors.New("get err: key don't exist")
+	getv, leaseID, err := s.getValueByKey(ctx, name)
+	if err != nil {
+		log.Println(err)
+		return nil, err
 	}
 	if addr != getv {
 		log.Println("match err: address", addr, "don't match", getv)
@@ -150,4 +93,17 @@ func (s *EtcdRegistrarServer) HeartbeatActive(ctx context.Context, svc *pb.Servi
 	}
 	log.Println(name, "in", addr, "keepalive success")
 	return &pb.Reply{}, nil
+}
+
+func (s *EtcdRegistrarServer) Discover(ctx context.Context, req *pb.DiscoverRequest) (*pb.DiscoverResponse, error) {
+	name := req.GetName()
+	addr, err := s.chooseService(ctx, name)
+	if err != nil {
+		log.Println("discover err:", err)
+		return nil, err
+	}
+	log.Println("service", name, "discover in", addr)
+	return &pb.DiscoverResponse{
+		Address: addr,
+	}, nil
 }

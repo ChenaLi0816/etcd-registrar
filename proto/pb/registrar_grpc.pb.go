@@ -22,6 +22,7 @@ const (
 	EtcdRegistrar_Register_FullMethodName        = "/EtcdRegistrar/Register"
 	EtcdRegistrar_HeartbeatActive_FullMethodName = "/EtcdRegistrar/HeartbeatActive"
 	EtcdRegistrar_Logout_FullMethodName          = "/EtcdRegistrar/Logout"
+	EtcdRegistrar_Discover_FullMethodName        = "/EtcdRegistrar/Discover"
 )
 
 // EtcdRegistrarClient is the client API for EtcdRegistrar service.
@@ -31,6 +32,7 @@ type EtcdRegistrarClient interface {
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 	HeartbeatActive(ctx context.Context, in *Service, opts ...grpc.CallOption) (*Reply, error)
 	Logout(ctx context.Context, in *Service, opts ...grpc.CallOption) (*Reply, error)
+	Discover(ctx context.Context, in *DiscoverRequest, opts ...grpc.CallOption) (*DiscoverResponse, error)
 }
 
 type etcdRegistrarClient struct {
@@ -68,6 +70,15 @@ func (c *etcdRegistrarClient) Logout(ctx context.Context, in *Service, opts ...g
 	return out, nil
 }
 
+func (c *etcdRegistrarClient) Discover(ctx context.Context, in *DiscoverRequest, opts ...grpc.CallOption) (*DiscoverResponse, error) {
+	out := new(DiscoverResponse)
+	err := c.cc.Invoke(ctx, EtcdRegistrar_Discover_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EtcdRegistrarServer is the server API for EtcdRegistrar service.
 // All implementations must embed UnimplementedEtcdRegistrarServer
 // for forward compatibility
@@ -75,6 +86,7 @@ type EtcdRegistrarServer interface {
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	HeartbeatActive(context.Context, *Service) (*Reply, error)
 	Logout(context.Context, *Service) (*Reply, error)
+	Discover(context.Context, *DiscoverRequest) (*DiscoverResponse, error)
 	mustEmbedUnimplementedEtcdRegistrarServer()
 }
 
@@ -90,6 +102,9 @@ func (UnimplementedEtcdRegistrarServer) HeartbeatActive(context.Context, *Servic
 }
 func (UnimplementedEtcdRegistrarServer) Logout(context.Context, *Service) (*Reply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Logout not implemented")
+}
+func (UnimplementedEtcdRegistrarServer) Discover(context.Context, *DiscoverRequest) (*DiscoverResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Discover not implemented")
 }
 func (UnimplementedEtcdRegistrarServer) mustEmbedUnimplementedEtcdRegistrarServer() {}
 
@@ -158,6 +173,24 @@ func _EtcdRegistrar_Logout_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EtcdRegistrar_Discover_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DiscoverRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EtcdRegistrarServer).Discover(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EtcdRegistrar_Discover_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EtcdRegistrarServer).Discover(ctx, req.(*DiscoverRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EtcdRegistrar_ServiceDesc is the grpc.ServiceDesc for EtcdRegistrar service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -176,6 +209,10 @@ var EtcdRegistrar_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Logout",
 			Handler:    _EtcdRegistrar_Logout_Handler,
+		},
+		{
+			MethodName: "Discover",
+			Handler:    _EtcdRegistrar_Discover_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

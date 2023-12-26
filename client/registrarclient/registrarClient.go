@@ -3,6 +3,7 @@ package registrarclient
 import (
 	"context"
 	"etcd-registrar/proto/pb"
+	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"log"
@@ -39,6 +40,9 @@ func NewRegistrarClient(addr string) (*RegistrarClient, error) {
 }
 
 func (c *RegistrarClient) Register(ctx context.Context, name, addr string, leaseTime int64) error {
+	if c.ticker != nil {
+		return fmt.Errorf("err: service has register")
+	}
 	req := &pb.RegisterRequest{
 		Name:      name,
 		Address:   addr,
@@ -50,10 +54,8 @@ func (c *RegistrarClient) Register(ctx context.Context, name, addr string, lease
 	}
 	c.name = resp.GetServiceName()
 	c.address = addr
-	if c.ticker == nil {
-		c.ticker = time.NewTicker(time.Second * time.Duration(leaseTime-HEARTBEATOFFSET))
-		go c.timeTick(ctx)
-	}
+	c.ticker = time.NewTicker(time.Second * time.Duration(leaseTime-HEARTBEATOFFSET))
+	go c.timeTick(ctx)
 
 	return nil
 }
@@ -102,6 +104,17 @@ func (c *RegistrarClient) Close() {
 	}
 
 	c.ticker.Stop()
+	c.ticker = nil
 	_ = c.logout(context.Background())
 	_ = c.conn.Close()
+}
+
+func (c *RegistrarClient) Discover(ctx context.Context, name string) (string, error) {
+	resp, err := c.cli.Discover(ctx, &pb.DiscoverRequest{
+		Name: name,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Address, nil
 }

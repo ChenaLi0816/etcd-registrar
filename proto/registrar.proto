@@ -7,6 +7,7 @@ service EtcdRegistrar {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc HeartbeatActive(Service) returns (Reply);
   rpc Logout(Service) returns (Reply);
+  rpc Discover(DiscoverRequest) returns (DiscoverResponse);
 }
 
 
@@ -29,4 +30,12 @@ message RegisterResponse {
 
 message Reply {
 
+}
+
+message DiscoverRequest {
+  string name = 1;
+}
+
+message DiscoverResponse {
+  string address = 1;
 }
