@@ -44,9 +44,12 @@ func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequ
 	if name == "" || addr == "" {
 		return nil, errors.New("string err: name or address is null")
 	}
-	v, err := s.getKeyByValue(ctx, name, addr)
+	v, leaseID, err := s.getKeyByValue(ctx, name, addr)
 	// TODO 分布式锁，有可能两边读的时候都没有，写的时候都写了
 	if err == nil {
+		if _, err := s.Cli.KeepAliveOnce(ctx, leaseID); err != nil {
+			return nil, fmt.Errorf("keepalive err: %w", err)
+		}
 		return &pb.RegisterResponse{
 			ServiceName: v,
 		}, nil

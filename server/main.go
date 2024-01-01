@@ -6,12 +6,21 @@ import (
 	"google.golang.org/grpc"
 	"log"
 	"net"
+	"os"
 )
 
 func main() {
-	lis, _ := net.Listen("tcp", ":9090")
+	port := ":" + initFlag()
+	lis, _ := net.Listen("tcp", port)
 	grpcServer := grpc.NewServer()
 	pb.RegisterEtcdRegistrarServer(grpcServer, registrarserver.NewEtcdRegistrarServer("localhost:2379"))
-	log.Println("server prepared.")
+	log.Println("server prepared on", port)
 	_ = grpcServer.Serve(lis)
+}
+
+func initFlag() string {
+	if len(os.Args) < 2 {
+		log.Fatalln("need flag")
+	}
+	return os.Args[1]
 }

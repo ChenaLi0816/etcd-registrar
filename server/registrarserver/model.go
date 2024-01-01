@@ -29,17 +29,17 @@ func (s *EtcdRegistrarServer) getValueByKey(ctx context.Context, key string) (st
 	return string(resp.Kvs[0].Value), clientv3.LeaseID(resp.Kvs[0].Lease), nil
 }
 
-func (s *EtcdRegistrarServer) getKeyByValue(ctx context.Context, prefix, value string) (string, error) {
+func (s *EtcdRegistrarServer) getKeyByValue(ctx context.Context, prefix, value string) (string, clientv3.LeaseID, error) {
 	resp, _ := s.Cli.Get(ctx, prefix, clientv3.WithPrefix())
 	if len(resp.Kvs) == 0 {
-		return "", fmt.Errorf("key %s don't exist", prefix)
+		return "", 0, fmt.Errorf("key %s don't exist", prefix)
 	}
 	for _, v := range resp.Kvs {
 		if string(v.Value) == value {
-			return string(v.Key), nil
+			return string(v.Key), clientv3.LeaseID(v.Lease), nil
 		}
 	}
-	return "", fmt.Errorf("value %s don't exist", value)
+	return "", 0, fmt.Errorf("value %s don't exist", value)
 }
 
 func (s *EtcdRegistrarServer) deleteKey(ctx context.Context, key, value string) error {
@@ -77,6 +77,7 @@ func (s *EtcdRegistrarServer) chooseService(ctx context.Context, prefix string) 
 	return string(resp.Kvs[s.average(num)].Value), nil
 }
 
+// TODO 负载均衡算法
 func (s *EtcdRegistrarServer) average(num int) int {
 	return rand.Int() % num
 }
