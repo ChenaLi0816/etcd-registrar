@@ -1,8 +1,8 @@
 package main
 
 import (
-	"etcd-registrar/proto/pb"
-	"etcd-registrar/server/registrarserver"
+	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
+	"github.com/ChenaLi0816/etcd-registrar/server/registrarserver"
 	"google.golang.org/grpc"
 	"log"
 	"net"

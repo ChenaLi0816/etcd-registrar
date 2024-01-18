@@ -3,8 +3,8 @@ package registrarserver
 import (
 	"context"
 	"errors"
-	"etcd-registrar/proto/pb"
 	"fmt"
+	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"log"
 	"sync"

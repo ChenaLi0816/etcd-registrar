@@ -2,8 +2,8 @@ package registrarclient
 
 import (
 	"context"
-	"etcd-registrar/proto/pb"
 	"fmt"
+	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"io"
