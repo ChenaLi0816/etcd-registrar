@@ -1,4 +1,4 @@
-module etcd-registrar
+module github.com/ChenaLi0816/etcd-registrar
 
 go 1.20
 
