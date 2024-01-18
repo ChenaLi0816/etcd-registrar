@@ -2,44 +2,66 @@ package registrarclient
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"testing"
+	"time"
 )
 
 const (
-	NAME    = "test"
-	ADDRESS = "test_address"
+	NAME     = "test"
+	ADDRESS  = "test_address"
+	ADDRESS2 = "test_address2"
 )
 
-//func TestNewRegistrarClient(t *testing.T) {
-//	cli1 := newGrpcConn("localhost:9090")
-//
-//	serviceName, err := cli1.Register(context.Background(), NAME, ADDRESS, 10)
-//	if err != nil {
-//		log.Fatalln(err)
-//	}
-//	defer cli1.Close(context.Background(), serviceName, ADDRESS)
-//
-//	ticker := time.NewTicker(time.Second * 3)
-//	defer ticker.Stop()
-//	for {
-//		select {
-//		case <-ticker.C:
-//			addr, err := cli1.Discover(context.Background(), NAME)
-//			if err != nil {
-//				log.Fatalln(err)
-//			}
-//			log.Println("get service", NAME, "in", addr)
-//		}
-//	}
-//}
-
-func TestNewRegistrarClient2(t *testing.T) {
-	cli := NewRegistrarClient(WithService(NAME, ADDRESS), WithLeaseTime(5), WithRegistrarAddr([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
-	defer cli.Close(context.Background())
+func TestNewRegistrarClient(t *testing.T) {
+	cli := NewRegistrarClient(WithService(NAME, ADDRESS), WithLeaseTime(5), WithRegistrarAddr([]string{"localhost:8080"}))
+	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
 		log.Fatalln(err)
 	}
 	select {}
+	time.Sleep(time.Second * 30)
+}
+
+func TestNewRegistrarClient2(t *testing.T) {
+	cli := NewRegistrarClient(WithService(NAME, ADDRESS2), WithLeaseTime(5), WithRegistrarAddr([]string{"localhost:8080"}))
+	defer cli.Close()
+	err := cli.Register(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
+	select {}
+	time.Sleep(time.Second * 30)
+}
+
+func TestRegistrarClient_Discover(t *testing.T) {
+	cli := NewRegistrarClient(WithService(NAME, ADDRESS), WithLeaseTime(5), WithRegistrarAddr([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
+	defer cli.Close()
+	err := cli.Register(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
+}
+
+func TestNilChannel(t *testing.T) {
+	select {
+	case <-context.Background().Done():
+		log.Println("backendground done")
+	default:
+		log.Println("nothing happen")
+	}
+}
+
+func TestSubscribe(t *testing.T) {
+	cli := NewRegistrarClient(WithService(NAME, ADDRESS), WithLeaseTime(5), WithRegistrarAddr([]string{"localhost:8080"}))
+	defer cli.Close()
+	ch, err := cli.Subscribe(context.Background(), NAME)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	for resp := range ch {
+		fmt.Printf("available %v addr %v\n", resp.Available, resp.Addr)
+	}
 }

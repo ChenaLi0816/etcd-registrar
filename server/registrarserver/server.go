@@ -100,7 +100,7 @@ func (s *EtcdRegistrarServer) HeartbeatActive(ctx context.Context, svc *pb.Servi
 
 func (s *EtcdRegistrarServer) Discover(ctx context.Context, req *pb.DiscoverRequest) (*pb.DiscoverResponse, error) {
 	name := req.GetName()
-	addr, err := s.chooseService(ctx, name)
+	_, addr, err := s.chooseService(ctx, name)
 	if err != nil {
 		log.Println("discover err:", err)
 		return nil, err
@@ -109,4 +109,51 @@ func (s *EtcdRegistrarServer) Discover(ctx context.Context, req *pb.DiscoverRequ
 	return &pb.DiscoverResponse{
 		Address: addr,
 	}, nil
+}
+
+func (s *EtcdRegistrarServer) Subscribe(req *pb.SubscribeRequest, stream pb.EtcdRegistrar_SubscribeServer) error {
+	name := req.GetName()
+choose:
+	svcname, addr, err := s.chooseService(context.Background(), name)
+	if err != nil {
+		log.Println("subscribe err:", err)
+		err = stream.Send(&pb.SubscribeResponse{
+			Available: false,
+			Addr:      "",
+		})
+		if err != nil {
+			log.Println("send err:", err)
+		}
+		return err
+	}
+	err = stream.Send(&pb.SubscribeResponse{
+		Available: true,
+		Addr:      addr,
+	})
+	if err != nil {
+		log.Println("send err:", err)
+		return err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	watchChan := s.Cli.Watch(ctx, svcname)
+
+	for resp := range watchChan {
+		event := resp.Events[0]
+		if event.Type == clientv3.EventTypeDelete {
+			cancel()
+			goto choose
+		}
+		addr = string(event.Kv.Value)
+		err = stream.Send(&pb.SubscribeResponse{
+			Available: true,
+			Addr:      addr,
+		})
+		if err != nil {
+			log.Println("send err:", err)
+			cancel()
+			return err
+		}
+	}
+	cancel()
+	return ErrKeyNoExist
 }

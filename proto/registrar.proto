@@ -8,6 +8,7 @@ service EtcdRegistrar {
   rpc HeartbeatActive(Service) returns (Reply);
   rpc Logout(Service) returns (Reply);
   rpc Discover(DiscoverRequest) returns (DiscoverResponse);
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
 }
 
 
@@ -38,4 +39,13 @@ message DiscoverRequest {
 
 message DiscoverResponse {
   string address = 1;
+}
+
+message SubscribeRequest {
+  string name = 1;
+}
+
+message SubscribeResponse {
+  bool available = 1;
+  string addr = 2;
 }

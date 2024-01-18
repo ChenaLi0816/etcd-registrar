@@ -30,7 +30,7 @@ func NewDefaultOptions() *ClientOpts {
 		name:      "",
 		file:      false,
 		localAddr: "",
-		address:   []string{"127.0.0.1:2379"},
+		address:   []string{"127.0.0.1:8080"},
 		leaseTime: DEFAULT_LEASE_TIME,
 		passive:   false,
 	}
@@ -45,6 +45,9 @@ func (opt *ClientOpts) ApplyOpts(option []ClientOption) {
 	}
 	if opt.name == "" || opt.localAddr == "" {
 		panic("name or local address is null.")
+	}
+	if len(opt.address) == 0 {
+		panic("registrar address is null")
 	}
 }
 

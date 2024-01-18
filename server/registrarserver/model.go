@@ -8,6 +8,11 @@ import (
 	"math/rand"
 )
 
+var (
+	ErrKeyNoExist   = errors.New("key don't exist")
+	ErrValueNoExist = errors.New("value don't exist")
+)
+
 func (s *EtcdRegistrarServer) putKey(ctx context.Context, key, value string, leaseTime int64) error {
 	res, err := s.Cli.Grant(ctx, leaseTime)
 	if err != nil {
@@ -22,24 +27,30 @@ func (s *EtcdRegistrarServer) putKey(ctx context.Context, key, value string, lea
 }
 
 func (s *EtcdRegistrarServer) getValueByKey(ctx context.Context, key string) (string, clientv3.LeaseID, error) {
-	resp, _ := s.Cli.Get(ctx, key)
+	resp, err := s.Cli.Get(ctx, key)
+	if err != nil {
+		return "", 0, err
+	}
 	if len(resp.Kvs) == 0 {
-		return "", 0, fmt.Errorf("key %s don't exist", key)
+		return "", 0, ErrKeyNoExist
 	}
 	return string(resp.Kvs[0].Value), clientv3.LeaseID(resp.Kvs[0].Lease), nil
 }
 
 func (s *EtcdRegistrarServer) getKeyByValue(ctx context.Context, prefix, value string) (string, clientv3.LeaseID, error) {
-	resp, _ := s.Cli.Get(ctx, prefix, clientv3.WithPrefix())
+	resp, err := s.Cli.Get(ctx, prefix, clientv3.WithPrefix())
+	if err != nil {
+		return "", 0, err
+	}
 	if len(resp.Kvs) == 0 {
-		return "", 0, fmt.Errorf("key %s don't exist", prefix)
+		return "", 0, ErrKeyNoExist
 	}
 	for _, v := range resp.Kvs {
 		if string(v.Value) == value {
 			return string(v.Key), clientv3.LeaseID(v.Lease), nil
 		}
 	}
-	return "", 0, fmt.Errorf("value %s don't exist", value)
+	return "", 0, ErrValueNoExist
 }
 
 func (s *EtcdRegistrarServer) deleteKey(ctx context.Context, key, value string) error {
@@ -65,16 +76,27 @@ func (s *EtcdRegistrarServer) deleteKey(ctx context.Context, key, value string) 
 	return nil
 }
 
-func (s *EtcdRegistrarServer) chooseService(ctx context.Context, prefix string) (string, error) {
+//func (s *EtcdRegistrarServer) getValuesByKey(ctx context.Context, prefix string) (string, error) {
+//	resp, err := s.Cli.Get(ctx, prefix, clientv3.WithPrefix())
+//	if err != nil {
+//		return "", fmt.Errorf("get err:%w", err)
+//	}
+//	if len(resp.Kvs) == 0 {
+//		return "", fmt.Errorf("key %s don't exist", prefix)
+//	}
+//
+//}
+
+func (s *EtcdRegistrarServer) chooseService(ctx context.Context, prefix string) (string, string, error) {
 	resp, err := s.Cli.Get(ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
-		return "", fmt.Errorf("get err:%w", err)
+		return "", "", fmt.Errorf("get err:%w", err)
 	}
 	if len(resp.Kvs) == 0 {
-		return "", fmt.Errorf("key %s don't exist", prefix)
+		return "", "", ErrKeyNoExist
 	}
-	num := len(resp.Kvs)
-	return string(resp.Kvs[s.average(num)].Value), nil
+	idx := s.average(len(resp.Kvs))
+	return string(resp.Kvs[idx].Key), string(resp.Kvs[idx].Value), nil
 }
 
 // TODO 负载均衡算法

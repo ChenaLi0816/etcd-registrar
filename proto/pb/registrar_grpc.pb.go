@@ -23,6 +23,7 @@ const (
 	EtcdRegistrar_HeartbeatActive_FullMethodName = "/EtcdRegistrar/HeartbeatActive"
 	EtcdRegistrar_Logout_FullMethodName          = "/EtcdRegistrar/Logout"
 	EtcdRegistrar_Discover_FullMethodName        = "/EtcdRegistrar/Discover"
+	EtcdRegistrar_Subscribe_FullMethodName       = "/EtcdRegistrar/Subscribe"
 )
 
 // EtcdRegistrarClient is the client API for EtcdRegistrar service.
@@ -33,6 +34,7 @@ type EtcdRegistrarClient interface {
 	HeartbeatActive(ctx context.Context, in *Service, opts ...grpc.CallOption) (*Reply, error)
 	Logout(ctx context.Context, in *Service, opts ...grpc.CallOption) (*Reply, error)
 	Discover(ctx context.Context, in *DiscoverRequest, opts ...grpc.CallOption) (*DiscoverResponse, error)
+	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (EtcdRegistrar_SubscribeClient, error)
 }
 
 type etcdRegistrarClient struct {
@@ -79,6 +81,38 @@ func (c *etcdRegistrarClient) Discover(ctx context.Context, in *DiscoverRequest,
 	return out, nil
 }
 
+func (c *etcdRegistrarClient) Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (EtcdRegistrar_SubscribeClient, error) {
+	stream, err := c.cc.NewStream(ctx, &EtcdRegistrar_ServiceDesc.Streams[0], EtcdRegistrar_Subscribe_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &etcdRegistrarSubscribeClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type EtcdRegistrar_SubscribeClient interface {
+	Recv() (*SubscribeResponse, error)
+	grpc.ClientStream
+}
+
+type etcdRegistrarSubscribeClient struct {
+	grpc.ClientStream
+}
+
+func (x *etcdRegistrarSubscribeClient) Recv() (*SubscribeResponse, error) {
+	m := new(SubscribeResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // EtcdRegistrarServer is the server API for EtcdRegistrar service.
 // All implementations must embed UnimplementedEtcdRegistrarServer
 // for forward compatibility
@@ -87,6 +121,7 @@ type EtcdRegistrarServer interface {
 	HeartbeatActive(context.Context, *Service) (*Reply, error)
 	Logout(context.Context, *Service) (*Reply, error)
 	Discover(context.Context, *DiscoverRequest) (*DiscoverResponse, error)
+	Subscribe(*SubscribeRequest, EtcdRegistrar_SubscribeServer) error
 	mustEmbedUnimplementedEtcdRegistrarServer()
 }
 
@@ -105,6 +140,9 @@ func (UnimplementedEtcdRegistrarServer) Logout(context.Context, *Service) (*Repl
 }
 func (UnimplementedEtcdRegistrarServer) Discover(context.Context, *DiscoverRequest) (*DiscoverResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Discover not implemented")
+}
+func (UnimplementedEtcdRegistrarServer) Subscribe(*SubscribeRequest, EtcdRegistrar_SubscribeServer) error {
+	return status.Errorf(codes.Unimplemented, "method Subscribe not implemented")
 }
 func (UnimplementedEtcdRegistrarServer) mustEmbedUnimplementedEtcdRegistrarServer() {}
 
@@ -191,6 +229,27 @@ func _EtcdRegistrar_Discover_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EtcdRegistrar_Subscribe_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(EtcdRegistrarServer).Subscribe(m, &etcdRegistrarSubscribeServer{stream})
+}
+
+type EtcdRegistrar_SubscribeServer interface {
+	Send(*SubscribeResponse) error
+	grpc.ServerStream
+}
+
+type etcdRegistrarSubscribeServer struct {
+	grpc.ServerStream
+}
+
+func (x *etcdRegistrarSubscribeServer) Send(m *SubscribeResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // EtcdRegistrar_ServiceDesc is the grpc.ServiceDesc for EtcdRegistrar service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -215,6 +274,12 @@ var EtcdRegistrar_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _EtcdRegistrar_Discover_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Subscribe",
+			Handler:       _EtcdRegistrar_Subscribe_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "registrar.proto",
 }

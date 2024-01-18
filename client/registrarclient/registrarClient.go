@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"io"
 	"log"
 	"time"
 )
@@ -14,11 +15,13 @@ const (
 	HEARTBEATOFFSET  = 1
 	MAXRETRY         = 2
 	DEFAULTLEASETIME = 10
+	BufSize          = 10
 )
 
 type RegistrarClient struct {
 	options   *ClientOpts
 	addrIndex int
+	uniqueID  string
 
 	cli    pb.EtcdRegistrarClient
 	conn   *grpc.ClientConn
@@ -29,12 +32,6 @@ type RegistrarClient struct {
 func NewRegistrarClient(option ...ClientOption) *RegistrarClient {
 	opts := NewDefaultOptions()
 	opts.ApplyOpts(option)
-
-	// TODO delete
-	name := opts.GetName()
-	addr := opts.GetLocalAddr()
-	leaseTime := opts.GetLeaseTime()
-	log.Println(name, addr, "create with lease time", leaseTime)
 
 	c := &RegistrarClient{
 		options:   opts,
@@ -50,7 +47,7 @@ func NewRegistrarClient(option ...ClientOption) *RegistrarClient {
 }
 
 func (c *RegistrarClient) switchConnection(ctx context.Context) error {
-	c.Close(ctx)
+	c.Close()
 	l := len(c.options.address)
 	oft := 0
 	for oft < l {
@@ -71,7 +68,7 @@ func (c *RegistrarClient) switchConnection(ctx context.Context) error {
 			log.Println("warning:registrar address", a, "is unavailable")
 		} else {
 			log.Println("connect to registrar", a, "success")
-			break
+			return nil
 		}
 	}
 
@@ -108,7 +105,7 @@ func (c *RegistrarClient) Register(ctx context.Context) error {
 		log.Println("register err:", err, "now retry")
 		_ = c.switchConnection(ctx)
 	}
-	c.options.name = resp.GetServiceName()
+	c.uniqueID = resp.GetServiceName()
 	c.ticker = time.NewTicker(time.Second * time.Duration(c.options.leaseTime-HEARTBEATOFFSET))
 	log.Println("register success")
 	go c.timeTick(ctx)
@@ -121,7 +118,7 @@ func (c *RegistrarClient) timeTick(ctx context.Context) {
 		select {
 		case <-c.ticker.C:
 			_, err := c.cli.HeartbeatActive(ctx, &pb.Service{
-				Name:    c.options.name,
+				Name:    c.uniqueID,
 				Address: c.options.localAddr,
 			})
 			if err != nil {
@@ -137,11 +134,11 @@ func (c *RegistrarClient) timeTick(ctx context.Context) {
 					return
 				}
 			} else {
-				log.Println(c.options.name, c.options.localAddr, "heartbeat success")
+				log.Println(c.uniqueID, c.options.localAddr, "heartbeat success")
 				retryTimes = 0
 			}
 		case <-c.close:
-			log.Println(c.options.name, "close time tick")
+			log.Println(c.uniqueID, "close time tick")
 			return
 		}
 	}
@@ -149,26 +146,25 @@ func (c *RegistrarClient) timeTick(ctx context.Context) {
 
 func (c *RegistrarClient) logout(ctx context.Context) error {
 	_, err := c.cli.Logout(ctx, &pb.Service{
-		Name:    c.options.name,
+		Name:    c.uniqueID,
 		Address: c.options.localAddr,
 	})
 	return err
 }
 
 // TODO new了但没注册
-func (c *RegistrarClient) Close(ctx context.Context) {
+func (c *RegistrarClient) Close() {
 	if c.ticker != nil {
 		close(c.close)
 		c.ticker.Stop()
 		c.ticker = nil
 	}
 	if c.cli != nil {
-		_ = c.logout(ctx)
+		_ = c.logout(context.Background())
 	}
 	if c.conn != nil {
 		_ = c.conn.Close()
 	}
-
 }
 
 func (c *RegistrarClient) Discover(ctx context.Context, name string) (string, error) {
@@ -179,4 +175,28 @@ func (c *RegistrarClient) Discover(ctx context.Context, name string) (string, er
 		return "", err
 	}
 	return resp.GetAddress(), nil
+}
+
+func (c *RegistrarClient) Subscribe(ctx context.Context, name string) (chan *pb.SubscribeResponse, error) {
+	stream, err := c.cli.Subscribe(ctx, &pb.SubscribeRequest{
+		Name: name,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ch := make(chan *pb.SubscribeResponse, BufSize)
+	go func() {
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					log.Println("stream end.")
+					close(ch)
+				}
+				return
+			}
+			ch <- resp
+		}
+	}()
+	return ch, nil
 }
