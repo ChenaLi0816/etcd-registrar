@@ -30,7 +30,7 @@ func NewDefaultOptions() *ClientOpts {
 		name:      "",
 		file:      false,
 		localAddr: "",
-		address:   []string{"127.0.0.1:8080"},
+		address:   []string{},
 		leaseTime: DEFAULT_LEASE_TIME,
 		passive:   false,
 	}
@@ -51,24 +51,25 @@ func (opt *ClientOpts) ApplyOpts(option []ClientOption) {
 	}
 }
 
-func (opt *ClientOpts) GetLeaseTime() int64 {
-	return opt.leaseTime
+func (opt *ClientOpts) WithLeaseTime(leaseTime int64) *ClientOpts {
+	opt.leaseTime = leaseTime
+	return opt
 }
 
-func (opt *ClientOpts) GetAddress() []string {
-	return opt.address
+func (opt *ClientOpts) WithRegistrarAddress(addr []string) *ClientOpts {
+	opt.address = addr
+	return opt
 }
 
-func (opt *ClientOpts) GetName() string {
-	return opt.name
+func (opt *ClientOpts) WithService(name string, addr string) *ClientOpts {
+	opt.name = name
+	opt.localAddr = addr
+	return opt
 }
 
-func (opt *ClientOpts) GetLocalAddr() string {
-	return opt.localAddr
-}
-
-func (opt *ClientOpts) IsPassive() bool {
-	return opt.passive
+func (opt *ClientOpts) WithPassive(b bool) *ClientOpts {
+	opt.passive = b
+	return opt
 }
 
 type fileOption struct {

@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+package etcdRegistrar;
 
 option go_package = "github.com/ChenaLi0816/etcd-registrar/proto/pb";
 

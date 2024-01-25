@@ -2,6 +2,7 @@ package registrarclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	"google.golang.org/grpc"
@@ -29,10 +30,12 @@ type RegistrarClient struct {
 	close  chan struct{}
 }
 
-func NewRegistrarClient(option ...ClientOption) *RegistrarClient {
-	opts := NewDefaultOptions()
-	opts.ApplyOpts(option)
-
+func NewRegistrarClient(opts *ClientOpts) *RegistrarClient {
+	//opts := NewDefaultOptions()
+	//opts.ApplyOpts(option)
+	if opts == nil {
+		opts = NewDefaultOptions()
+	}
 	c := &RegistrarClient{
 		options:   opts,
 		addrIndex: 0,
@@ -94,6 +97,9 @@ func (c *RegistrarClient) newGrpcConn(addr string) error {
 func (c *RegistrarClient) Register(ctx context.Context) error {
 	if c.ticker != nil {
 		return fmt.Errorf("service time ticker is not nil")
+	}
+	if c.options.name == "" || c.options.localAddr == "" {
+		return errors.New("service name or service address is null")
 	}
 	req := &pb.RegisterRequest{
 		Name:      c.options.name,
