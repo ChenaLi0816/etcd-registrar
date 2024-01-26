@@ -11,15 +11,19 @@ import (
 )
 
 const (
+	// TODO your service...
 	NAME = "your_service_name"
 	ADDR = "your_service_addr"
 )
+
+// TODO your registrar address...
+var registrarAddr = []string{"your_registrar_address..."}
 {{$PbName := .PbName}}{{$ServerpbName := .ServerpbName}}
 func main() {
 	cfg := &registered_server.GrpcServerConfig{
 		Network:     "tcp",
 		Address:     ADDR,
-		RegisterOpt: registrarclient.NewDefaultOptions().WithService(NAME, ADDR).WithRegistrarAddress([]string{"your_registrar_addr"}),
+		RegisterOpt: registrarclient.NewDefaultOptions().WithService(NAME, ADDR).WithRegistrarAddress(registrarAddr),
 		RegisterFunc: func(grpcServer grpc.ServiceRegistrar) {
 		    {{range .Service}}{{$PbName}}.Register{{.ServiceName}}Server(grpcServer, {{$ServerpbName}}.New{{.ServiceName}}Server())
 		    {{end}}},
