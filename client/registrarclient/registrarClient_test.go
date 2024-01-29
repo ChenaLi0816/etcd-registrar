@@ -15,7 +15,7 @@ const (
 )
 
 func TestNewRegistrarClient(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
@@ -64,4 +64,34 @@ func TestSubscribe(t *testing.T) {
 	for resp := range ch {
 		fmt.Printf("available %v addr %v\n", resp.Available, resp.Addr)
 	}
+}
+
+func TestGrpcConn(t *testing.T) {
+	c := &basicClient{}
+	err := c.newGrpcConn("127.0.0.1:8080")
+	if err != nil {
+		log.Fatalln(err)
+	} else {
+		log.Println("success")
+	}
+}
+
+func TestClose(t *testing.T) {
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
+	defer cli.Close()
+	err := cli.Register(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
+	//time.Sleep(time.Second)
+}
+
+func TestPassiveClient(t *testing.T) {
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}).WithPassive(true))
+	defer cli.Close()
+	err := cli.Register(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
+	select {}
 }

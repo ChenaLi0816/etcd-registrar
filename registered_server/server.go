@@ -18,7 +18,7 @@ type Server interface {
 
 type server struct {
 	isRegistered bool
-	*registrarclient.RegistrarClient
+	registrarclient.RegistrarClient
 
 	grpcServer *grpc.Server
 	lis        net.Listener

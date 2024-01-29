@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"io"
 	"log"
 	"sync"
 	"time"
+)
+
+const (
+	HEARTBEATOFFSET = 1
 )
 
 type EtcdRegistrarServer struct {
@@ -54,12 +59,16 @@ func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequ
 			ServiceName: v,
 		}, nil
 	}
+	leaseTime := req.GetLeaseTime()
+	if leaseTime < 5 {
+		return nil, errors.New("lease time cannot be lower than 5")
+	}
 	// TODO 锁
 	s.locker.Lock()
 	s.ServiceNum++
 	name = fmt.Sprintf("%s/%d_%d", name, time.Now().Unix(), s.ServiceNum)
 	s.locker.Unlock()
-	if err := s.putKey(ctx, name, addr, req.GetLeaseTime()); err != nil {
+	if err := s.putKey(ctx, name, addr, leaseTime); err != nil {
 		return nil, err
 	}
 	log.Println("put key success", name, addr)
@@ -96,6 +105,53 @@ func (s *EtcdRegistrarServer) HeartbeatActive(ctx context.Context, svc *pb.Servi
 	}
 	log.Println(name, "in", addr, "keepalive success")
 	return &pb.Reply{}, nil
+}
+
+func (s *EtcdRegistrarServer) HeartbeatPassive(stream pb.EtcdRegistrar_HeartbeatPassiveServer) error {
+	rec, err := stream.Recv()
+	if err != nil {
+		log.Println("heartbeat passive recv err:", err)
+		return err
+	}
+	name := rec.GetName()
+	_, leaseID, err := s.getValueByKey(context.Background(), name)
+	if err != nil {
+		log.Println("get value err:", err)
+		return err
+	}
+	resp, err := s.Cli.KeepAliveOnce(context.Background(), leaseID)
+	if err != nil {
+		log.Println("keep alive err:", err)
+		return err
+	}
+	ticker := time.NewTicker(time.Duration(resp.TTL-HEARTBEATOFFSET) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			err = stream.Send(&pb.Reply{})
+			if err != nil {
+				log.Println("heartbeat passive send err:", err)
+				return err
+			}
+			_, err = stream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					log.Println("stream read EOF")
+					return nil
+				}
+				log.Println("heartbeat passive recv err:", err)
+				return err
+			}
+			_, err = s.Cli.KeepAliveOnce(context.Background(), leaseID)
+			if err != nil {
+				log.Println("keep alive err:", err)
+				return err
+			}
+		}
+		log.Println("heatbeat passive success", name)
+	}
 }
 
 func (s *EtcdRegistrarServer) Discover(ctx context.Context, req *pb.DiscoverRequest) (*pb.DiscoverResponse, error) {

@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.3.0
 // - protoc             v4.23.3
-// source: registrar.proto
+// source: proto/registrar.proto
 
 package pb
 
@@ -19,11 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	EtcdRegistrar_Register_FullMethodName        = "/EtcdRegistrar/Register"
-	EtcdRegistrar_HeartbeatActive_FullMethodName = "/EtcdRegistrar/HeartbeatActive"
-	EtcdRegistrar_Logout_FullMethodName          = "/EtcdRegistrar/Logout"
-	EtcdRegistrar_Discover_FullMethodName        = "/EtcdRegistrar/Discover"
-	EtcdRegistrar_Subscribe_FullMethodName       = "/EtcdRegistrar/Subscribe"
+	EtcdRegistrar_Register_FullMethodName         = "/etcdRegistrar.EtcdRegistrar/Register"
+	EtcdRegistrar_HeartbeatActive_FullMethodName  = "/etcdRegistrar.EtcdRegistrar/HeartbeatActive"
+	EtcdRegistrar_HeartbeatPassive_FullMethodName = "/etcdRegistrar.EtcdRegistrar/HeartbeatPassive"
+	EtcdRegistrar_Logout_FullMethodName           = "/etcdRegistrar.EtcdRegistrar/Logout"
+	EtcdRegistrar_Discover_FullMethodName         = "/etcdRegistrar.EtcdRegistrar/Discover"
+	EtcdRegistrar_Subscribe_FullMethodName        = "/etcdRegistrar.EtcdRegistrar/Subscribe"
 )
 
 // EtcdRegistrarClient is the client API for EtcdRegistrar service.
@@ -32,6 +33,7 @@ const (
 type EtcdRegistrarClient interface {
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 	HeartbeatActive(ctx context.Context, in *Service, opts ...grpc.CallOption) (*Reply, error)
+	HeartbeatPassive(ctx context.Context, opts ...grpc.CallOption) (EtcdRegistrar_HeartbeatPassiveClient, error)
 	Logout(ctx context.Context, in *Service, opts ...grpc.CallOption) (*Reply, error)
 	Discover(ctx context.Context, in *DiscoverRequest, opts ...grpc.CallOption) (*DiscoverResponse, error)
 	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (EtcdRegistrar_SubscribeClient, error)
@@ -63,6 +65,37 @@ func (c *etcdRegistrarClient) HeartbeatActive(ctx context.Context, in *Service, 
 	return out, nil
 }
 
+func (c *etcdRegistrarClient) HeartbeatPassive(ctx context.Context, opts ...grpc.CallOption) (EtcdRegistrar_HeartbeatPassiveClient, error) {
+	stream, err := c.cc.NewStream(ctx, &EtcdRegistrar_ServiceDesc.Streams[0], EtcdRegistrar_HeartbeatPassive_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &etcdRegistrarHeartbeatPassiveClient{stream}
+	return x, nil
+}
+
+type EtcdRegistrar_HeartbeatPassiveClient interface {
+	Send(*CheckHealth) error
+	Recv() (*Reply, error)
+	grpc.ClientStream
+}
+
+type etcdRegistrarHeartbeatPassiveClient struct {
+	grpc.ClientStream
+}
+
+func (x *etcdRegistrarHeartbeatPassiveClient) Send(m *CheckHealth) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *etcdRegistrarHeartbeatPassiveClient) Recv() (*Reply, error) {
+	m := new(Reply)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *etcdRegistrarClient) Logout(ctx context.Context, in *Service, opts ...grpc.CallOption) (*Reply, error) {
 	out := new(Reply)
 	err := c.cc.Invoke(ctx, EtcdRegistrar_Logout_FullMethodName, in, out, opts...)
@@ -82,7 +115,7 @@ func (c *etcdRegistrarClient) Discover(ctx context.Context, in *DiscoverRequest,
 }
 
 func (c *etcdRegistrarClient) Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (EtcdRegistrar_SubscribeClient, error) {
-	stream, err := c.cc.NewStream(ctx, &EtcdRegistrar_ServiceDesc.Streams[0], EtcdRegistrar_Subscribe_FullMethodName, opts...)
+	stream, err := c.cc.NewStream(ctx, &EtcdRegistrar_ServiceDesc.Streams[1], EtcdRegistrar_Subscribe_FullMethodName, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +152,7 @@ func (x *etcdRegistrarSubscribeClient) Recv() (*SubscribeResponse, error) {
 type EtcdRegistrarServer interface {
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	HeartbeatActive(context.Context, *Service) (*Reply, error)
+	HeartbeatPassive(EtcdRegistrar_HeartbeatPassiveServer) error
 	Logout(context.Context, *Service) (*Reply, error)
 	Discover(context.Context, *DiscoverRequest) (*DiscoverResponse, error)
 	Subscribe(*SubscribeRequest, EtcdRegistrar_SubscribeServer) error
@@ -134,6 +168,9 @@ func (UnimplementedEtcdRegistrarServer) Register(context.Context, *RegisterReque
 }
 func (UnimplementedEtcdRegistrarServer) HeartbeatActive(context.Context, *Service) (*Reply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HeartbeatActive not implemented")
+}
+func (UnimplementedEtcdRegistrarServer) HeartbeatPassive(EtcdRegistrar_HeartbeatPassiveServer) error {
+	return status.Errorf(codes.Unimplemented, "method HeartbeatPassive not implemented")
 }
 func (UnimplementedEtcdRegistrarServer) Logout(context.Context, *Service) (*Reply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Logout not implemented")
@@ -191,6 +228,32 @@ func _EtcdRegistrar_HeartbeatActive_Handler(srv interface{}, ctx context.Context
 		return srv.(EtcdRegistrarServer).HeartbeatActive(ctx, req.(*Service))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _EtcdRegistrar_HeartbeatPassive_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(EtcdRegistrarServer).HeartbeatPassive(&etcdRegistrarHeartbeatPassiveServer{stream})
+}
+
+type EtcdRegistrar_HeartbeatPassiveServer interface {
+	Send(*Reply) error
+	Recv() (*CheckHealth, error)
+	grpc.ServerStream
+}
+
+type etcdRegistrarHeartbeatPassiveServer struct {
+	grpc.ServerStream
+}
+
+func (x *etcdRegistrarHeartbeatPassiveServer) Send(m *Reply) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *etcdRegistrarHeartbeatPassiveServer) Recv() (*CheckHealth, error) {
+	m := new(CheckHealth)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func _EtcdRegistrar_Logout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -254,7 +317,7 @@ func (x *etcdRegistrarSubscribeServer) Send(m *SubscribeResponse) error {
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var EtcdRegistrar_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "EtcdRegistrar",
+	ServiceName: "etcdRegistrar.EtcdRegistrar",
 	HandlerType: (*EtcdRegistrarServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -276,10 +339,16 @@ var EtcdRegistrar_ServiceDesc = grpc.ServiceDesc{
 	},
 	Streams: []grpc.StreamDesc{
 		{
+			StreamName:    "HeartbeatPassive",
+			Handler:       _EtcdRegistrar_HeartbeatPassive_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
 			StreamName:    "Subscribe",
 			Handler:       _EtcdRegistrar_Subscribe_Handler,
 			ServerStreams: true,
 		},
 	},
-	Metadata: "registrar.proto",
+	Metadata: "proto/registrar.proto",
 }
