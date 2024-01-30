@@ -1,6 +1,10 @@
 package main
 
-import "github.com/ChenaLi0816/etcd-registrar/tool/argen/args"
+import (
+	"fmt"
+	"github.com/ChenaLi0816/etcd-registrar/tool/argen/args"
+	"os"
+)
 
 func main() {
 	opt := &args.ArgOptions{}
@@ -11,6 +15,7 @@ func main() {
 	}
 	info, err := cmd.CombinedOutput()
 	if err != nil {
-		panic(string(info))
+		fmt.Println(string(info))
+		os.Exit(1)
 	}
 }

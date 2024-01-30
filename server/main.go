@@ -14,7 +14,7 @@ func main() {
 	//port := ":8080"
 	lis, _ := net.Listen("tcp", port)
 	grpcServer := grpc.NewServer()
-	pb.RegisterEtcdRegistrarServer(grpcServer, registrarserver.NewEtcdRegistrarServer("localhost:2379"))
+	pb.RegisterEtcdRegistrarServer(grpcServer, registrarserver.NewEtcdRegistrarServer("localhost:2379", registrarserver.RandomBalancer))
 	log.Println("server prepared on", port)
 	_ = grpcServer.Serve(lis)
 }

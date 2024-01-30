@@ -8,7 +8,7 @@ import (
 
 func TestExistsfile(t *testing.T) {
 	fmt.Println(ExistsFile("./Makefile"))
-	fmt.Println(ExistsFile("os.go"))
+	fmt.Println(ExistsFile("file.go"))
 	fmt.Println(ExistsFile("E:/project/GoProject/src/etcd-registrar/Makefile"))
 }
 

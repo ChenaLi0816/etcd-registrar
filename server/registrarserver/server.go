@@ -18,14 +18,15 @@ const (
 
 type EtcdRegistrarServer struct {
 	pb.UnimplementedEtcdRegistrarServer
-	Cli        *clientv3.Client
+	*etcdModel
+	LoadBalancer
 	ServiceNum uint64
 	locker     sync.Mutex
 }
 
 var etcdServer *EtcdRegistrarServer = nil
 
-func NewEtcdRegistrarServer(addr string) *EtcdRegistrarServer {
+func NewEtcdRegistrarServer(addr string, bal balancer) *EtcdRegistrarServer {
 	if etcdServer == nil {
 		cli, err := clientv3.New(clientv3.Config{
 			Endpoints:   []string{addr},
@@ -34,10 +35,12 @@ func NewEtcdRegistrarServer(addr string) *EtcdRegistrarServer {
 		if err != nil {
 			log.Fatalln(err)
 		}
+		md := &etcdModel{Cli: cli}
 		etcdServer = &EtcdRegistrarServer{
-			Cli:        cli,
-			ServiceNum: 0,
-			locker:     sync.Mutex{},
+			etcdModel:    md,
+			LoadBalancer: NewBalancer(bal, md),
+			ServiceNum:   0,
+			locker:       sync.Mutex{},
 		}
 	}
 	return etcdServer
@@ -68,9 +71,17 @@ func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequ
 	s.ServiceNum++
 	name = fmt.Sprintf("%s/%d_%d", name, time.Now().Unix(), s.ServiceNum)
 	s.locker.Unlock()
-	if err := s.putKey(ctx, name, addr, leaseTime); err != nil {
+
+	err = s.newService(ctx, &serviceParams{
+		name:      name,
+		addr:      addr,
+		leaseTime: leaseTime,
+		weight:    req.GetWeight(),
+	})
+	if err != nil {
 		return nil, err
 	}
+
 	log.Println("put key success", name, addr)
 
 	return &pb.RegisterResponse{
@@ -156,7 +167,7 @@ func (s *EtcdRegistrarServer) HeartbeatPassive(stream pb.EtcdRegistrar_Heartbeat
 
 func (s *EtcdRegistrarServer) Discover(ctx context.Context, req *pb.DiscoverRequest) (*pb.DiscoverResponse, error) {
 	name := req.GetName()
-	_, addr, err := s.chooseService(ctx, name)
+	_, addr, err := s.selectService(name)
 	if err != nil {
 		log.Println("discover err:", err)
 		return nil, err
@@ -170,7 +181,7 @@ func (s *EtcdRegistrarServer) Discover(ctx context.Context, req *pb.DiscoverRequ
 func (s *EtcdRegistrarServer) Subscribe(req *pb.SubscribeRequest, stream pb.EtcdRegistrar_SubscribeServer) error {
 	name := req.GetName()
 choose:
-	svcname, addr, err := s.chooseService(context.Background(), name)
+	svcname, addr, err := s.selectService(name)
 	if err != nil {
 		log.Println("subscribe err:", err)
 		err = stream.Send(&pb.SubscribeResponse{
