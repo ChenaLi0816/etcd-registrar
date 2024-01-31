@@ -67,7 +67,7 @@ func (s *etcdModel) getKeyByValue(ctx context.Context, prefix, value string) (st
 func (s *etcdModel) deleteKey(ctx context.Context, key, value string) error {
 	getv, leaseID, err := s.getValueByKey(ctx, key)
 	if err != nil {
-		return fmt.Errorf("get err:%w", err)
+		return fmt.Errorf("get key %s err:%w", key, err)
 	}
 	if value != getv {
 		return errors.New("match err: address don't match")

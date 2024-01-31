@@ -195,7 +195,7 @@ type randomBalancer struct {
 func (r *randomBalancer) selectService(ctx context.Context, name string) (string, string, error) {
 	get, err := r.Cli.Get(ctx, name, clientv3.WithPrefix(), clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("get err: %w", err)
 	}
 	maxIndex := len(get.Kvs)
 	if maxIndex == 0 {

@@ -53,6 +53,9 @@ func (c *basicClient) newGrpcConn(addr string) error {
 }
 
 func (c *basicClient) logout(ctx context.Context) error {
+	if c.uniqueID == "" {
+		return nil
+	}
 	_, err := c.cli.Logout(ctx, &pb.Service{
 		Name:    c.uniqueID,
 		Address: c.options.localAddr,
@@ -88,7 +91,8 @@ func (c *basicClient) Discover(ctx context.Context, name string) (string, error)
 
 func (c *basicClient) Subscribe(ctx context.Context, name string) (chan *pb.SubscribeResponse, error) {
 	stream, err := c.cli.Subscribe(ctx, &pb.SubscribeRequest{
-		Name: name,
+		Name:      name,
+		LocalAddr: c.options.localAddr,
 	})
 	if err != nil {
 		return nil, err

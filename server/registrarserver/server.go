@@ -95,6 +95,7 @@ func (s *EtcdRegistrarServer) Logout(ctx context.Context, svc *pb.Service) (*pb.
 	name := svc.GetName()
 	addr := svc.GetAddress()
 	if err := s.deleteKey(ctx, name, addr); err != nil {
+		log.Println("logout err:", err)
 		return nil, err
 	}
 	log.Println(name, addr, "logout.")
@@ -188,9 +189,9 @@ func (s *EtcdRegistrarServer) Subscribe(req *pb.SubscribeRequest, stream pb.Etcd
 		LocalAddr: nil,
 		AuthInfo:  nil,
 	}
-	ctx := peer.NewContext(context.Background(), p)
+	bctx := peer.NewContext(context.Background(), p)
 choose:
-	svcname, addr, err := s.selectService(ctx, name)
+	svcname, addr, err := s.selectService(bctx, name)
 	if err != nil {
 		log.Println("subscribe err:", err)
 		err = stream.Send(&pb.SubscribeResponse{

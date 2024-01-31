@@ -2,7 +2,6 @@ package registrarclient
 
 import (
 	"context"
-	"errors"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	"log"
 	"os"
@@ -22,7 +21,7 @@ func init() {
 
 func (c *passiveClient) Register(ctx context.Context) error {
 	if c.options.name == "" || c.options.localAddr == "" {
-		return errors.New("service name or service address is null")
+		panic("service name or service address is null")
 	}
 	req := &pb.RegisterRequest{
 		Name:      c.options.name,

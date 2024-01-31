@@ -2,7 +2,6 @@ package registrarclient
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	"log"
@@ -22,7 +21,7 @@ func (c *activeClient) Register(ctx context.Context) error {
 		return fmt.Errorf("service time ticker is not nil")
 	}
 	if c.options.name == "" || c.options.localAddr == "" {
-		return errors.New("service name or service address is null")
+		panic("service name or service address is null")
 	}
 	req := &pb.RegisterRequest{
 		Name:      c.options.name,

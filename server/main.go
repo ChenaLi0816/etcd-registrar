@@ -10,11 +10,11 @@ import (
 )
 
 func main() {
-	port := ":" + initFlag()
-	//port := ":8080"
+	//port := ":" + initFlag()
+	port := ":8080"
 	lis, _ := net.Listen("tcp", port)
 	grpcServer := grpc.NewServer()
-	pb.RegisterEtcdRegistrarServer(grpcServer, registrarserver.NewEtcdRegistrarServer("localhost:2379", registrarserver.RandomBalancer))
+	pb.RegisterEtcdRegistrarServer(grpcServer, registrarserver.NewEtcdRegistrarServer("localhost:2379", registrarserver.IpHashBalancer))
 	log.Println("server prepared on", port)
 	_ = grpcServer.Serve(lis)
 }
