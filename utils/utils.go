@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"math/rand"
 	"strconv"
 )
@@ -34,4 +36,11 @@ func StringCmp(a, b string) int {
 		return -1
 	}
 	return 1
+}
+
+func Hash(ip string) uint32 {
+	hasher := sha256.New()
+	hasher.Write([]byte(ip))
+	hashBytes := hasher.Sum(nil)
+	return binary.BigEndian.Uint32(hashBytes)
 }

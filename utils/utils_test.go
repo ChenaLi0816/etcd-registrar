@@ -19,3 +19,7 @@ func TestRandInt(t *testing.T) {
 	fmt.Println("No3:", RandInt(40, true))
 	fmt.Println("No4:", RandInt(40, true))
 }
+
+func TestHash(t *testing.T) {
+	fmt.Println(Hash("127.0.0.1:8888"))
+}

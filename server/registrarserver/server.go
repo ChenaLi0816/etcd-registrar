@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/grpc/peer"
 	"io"
 	"log"
+	"net"
 	"sync"
 	"time"
 )
@@ -167,7 +169,7 @@ func (s *EtcdRegistrarServer) HeartbeatPassive(stream pb.EtcdRegistrar_Heartbeat
 
 func (s *EtcdRegistrarServer) Discover(ctx context.Context, req *pb.DiscoverRequest) (*pb.DiscoverResponse, error) {
 	name := req.GetName()
-	_, addr, err := s.selectService(name)
+	_, addr, err := s.selectService(ctx, name)
 	if err != nil {
 		log.Println("discover err:", err)
 		return nil, err
@@ -180,8 +182,15 @@ func (s *EtcdRegistrarServer) Discover(ctx context.Context, req *pb.DiscoverRequ
 
 func (s *EtcdRegistrarServer) Subscribe(req *pb.SubscribeRequest, stream pb.EtcdRegistrar_SubscribeServer) error {
 	name := req.GetName()
+	ip, _ := net.ResolveTCPAddr("tcp", req.GetLocalAddr())
+	p := &peer.Peer{
+		Addr:      ip,
+		LocalAddr: nil,
+		AuthInfo:  nil,
+	}
+	ctx := peer.NewContext(context.Background(), p)
 choose:
-	svcname, addr, err := s.selectService(name)
+	svcname, addr, err := s.selectService(ctx, name)
 	if err != nil {
 		log.Println("subscribe err:", err)
 		err = stream.Send(&pb.SubscribeResponse{

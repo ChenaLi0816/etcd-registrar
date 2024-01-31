@@ -2,9 +2,11 @@ package registrarserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/ChenaLi0816/etcd-registrar/utils"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/grpc/peer"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +18,11 @@ const (
 	RoundRobin balancer = iota
 	WeightRoundRobin
 	RandomBalancer
+	IpHashBalancer
+)
+
+var (
+	ErrContextPeerNoExist = errors.New("peer info isn't exist in context")
 )
 
 type serviceParams struct {
@@ -26,7 +33,7 @@ type serviceParams struct {
 }
 
 type LoadBalancer interface {
-	selectService(name string) (string, string, error)
+	selectService(ctx context.Context, name string) (string, string, error)
 	newService(ctx context.Context, p *serviceParams) error
 }
 
@@ -38,6 +45,8 @@ func NewBalancer(tp balancer, md *etcdModel) LoadBalancer {
 		return &weightRoundRobin{md}
 	case RandomBalancer:
 		return &randomBalancer{md}
+	case IpHashBalancer:
+		return &ipHashBalancer{md}
 	default:
 		return &roundRobin{md}
 	}
@@ -47,8 +56,8 @@ type roundRobin struct {
 	*etcdModel
 }
 
-func (r *roundRobin) selectService(name string) (string, string, error) {
-	get, err := r.Cli.Get(context.Background(), name, clientv3.WithPrefix(), clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
+func (r *roundRobin) selectService(ctx context.Context, name string) (string, string, error) {
+	get, err := r.Cli.Get(ctx, name, clientv3.WithPrefix(), clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
 	if err != nil {
 		return "", "", err
 	}
@@ -56,19 +65,19 @@ func (r *roundRobin) selectService(name string) (string, string, error) {
 	if maxIndex == 0 {
 		return "", "", ErrKeyNoExist
 	}
-	curIndex, _, err := r.getValueByKey(context.Background(), "curIndex")
+	curIndex, _, err := r.getValueByKey(ctx, "curIndex")
 	if err != nil {
 		if err != ErrKeyNoExist {
 			return "", "", err
 		}
 		curIndex = "0"
-		_, err = r.Cli.Put(context.Background(), "curIndex", curIndex)
+		_, err = r.Cli.Put(ctx, "curIndex", curIndex)
 		if err != nil {
 			return "", "", err
 		}
 	}
 	for {
-		txnResponse, err := r.Cli.Txn(context.Background()).
+		txnResponse, err := r.Cli.Txn(ctx).
 			If(clientv3.Compare(clientv3.Value("curIndex"), "=", curIndex)).
 			Then(clientv3.OpPut("curIndex", utils.StringModAdd(curIndex, 1, maxIndex))).
 			Else(clientv3.OpGet("curIndex")).Commit()
@@ -121,7 +130,7 @@ func parseWeight(resp *clientv3.GetResponse) []*weightServer {
 	return s
 }
 
-func (r *weightRoundRobin) selectService(name string) (string, string, error) {
+func (r *weightRoundRobin) selectService(ctx context.Context, name string) (string, string, error) {
 	var lock clientv3.LeaseID
 	var err error
 	for {
@@ -136,7 +145,7 @@ func (r *weightRoundRobin) selectService(name string) (string, string, error) {
 	}
 	defer utils.ReleaseLock(r.Cli, lock)
 
-	get, err := r.Cli.Get(context.Background(), "weight/"+name, clientv3.WithPrefix())
+	get, err := r.Cli.Get(ctx, "weight/"+name, clientv3.WithPrefix())
 	if len(get.Kvs) == 0 {
 		return "", "", ErrKeyNoExist
 	}
@@ -153,10 +162,10 @@ func (r *weightRoundRobin) selectService(name string) (string, string, error) {
 	}
 	best.curWeight -= total
 	for _, s := range svs {
-		r.putKeyWithLeaseID(context.Background(), "weight/"+s.name, fmt.Sprintf("%d:%d", s.weight, s.curWeight), s.leaseID)
+		r.putKeyWithLeaseID(ctx, "weight/"+s.name, fmt.Sprintf("%d:%d", s.weight, s.curWeight), s.leaseID)
 	}
 
-	get, err = r.Cli.Get(context.Background(), best.name)
+	get, err = r.Cli.Get(ctx, best.name)
 	if err != nil {
 		return "", "", err
 	}
@@ -183,8 +192,8 @@ type randomBalancer struct {
 	*etcdModel
 }
 
-func (r *randomBalancer) selectService(name string) (string, string, error) {
-	get, err := r.Cli.Get(context.Background(), name, clientv3.WithPrefix(), clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
+func (r *randomBalancer) selectService(ctx context.Context, name string) (string, string, error) {
+	get, err := r.Cli.Get(ctx, name, clientv3.WithPrefix(), clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
 	if err != nil {
 		return "", "", err
 	}
@@ -197,6 +206,33 @@ func (r *randomBalancer) selectService(name string) (string, string, error) {
 }
 
 func (r *randomBalancer) newService(ctx context.Context, p *serviceParams) error {
+	_, err := r.putKeyWithTime(ctx, p.name, p.addr, p.leaseTime)
+	return err
+}
+
+type ipHashBalancer struct {
+	*etcdModel
+}
+
+func (r *ipHashBalancer) selectService(ctx context.Context, name string) (string, string, error) {
+	get, err := r.Cli.Get(ctx, name, clientv3.WithPrefix(), clientv3.WithSort(clientv3.SortByKey, clientv3.SortAscend))
+	if err != nil {
+		return "", "", err
+	}
+	maxIndex := uint32(len(get.Kvs))
+	if maxIndex == 0 {
+		return "", "", ErrKeyNoExist
+	}
+	remote, ok := peer.FromContext(ctx)
+	if !ok {
+		return "", "", ErrContextPeerNoExist
+	}
+	sourceIP := remote.Addr.String()
+	index := utils.Hash(sourceIP) % maxIndex
+	return string(get.Kvs[index].Key), string(get.Kvs[index].Value), nil
+}
+
+func (r *ipHashBalancer) newService(ctx context.Context, p *serviceParams) error {
 	_, err := r.putKeyWithTime(ctx, p.name, p.addr, p.leaseTime)
 	return err
 }

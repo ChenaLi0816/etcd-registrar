@@ -48,6 +48,7 @@ message DiscoverResponse {
 
 message SubscribeRequest {
   string name = 1;
+  string local_addr = 2;
 }
 
 message SubscribeResponse {
