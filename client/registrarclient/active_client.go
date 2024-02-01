@@ -2,10 +2,10 @@ package registrarclient
 
 import (
 	"context"
-	"fmt"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -17,9 +17,6 @@ type activeClient struct {
 }
 
 func (c *activeClient) Register(ctx context.Context) error {
-	if c.ticker != nil {
-		return fmt.Errorf("service time ticker is not nil")
-	}
 	if c.options.name == "" || c.options.localAddr == "" {
 		panic("service name or service address is null")
 	}
@@ -40,6 +37,12 @@ func (c *activeClient) Register(ctx context.Context) error {
 	c.uniqueID = resp.GetServiceName()
 	c.ticker = time.NewTicker(time.Second * time.Duration(c.options.leaseTime-HEARTBEATOFFSET))
 	c.closeChan = make(chan struct{}, 1)
+
+	if resp.RegistrarAddr != nil {
+		log.Println("get addr:", resp.RegistrarAddr)
+		c.options.address = resp.RegistrarAddr
+	}
+
 	log.Println("register success")
 	go c.timeTick(ctx)
 	return nil
@@ -55,10 +58,9 @@ func (c *activeClient) timeTick(ctx context.Context) {
 		select {
 		case <-c.closeChan:
 			log.Println(c.uniqueID, "closeChan time tick")
-			c.ticker = nil
 			return
 		case <-c.ticker.C:
-			_, err := c.cli.HeartbeatActive(ctx, &pb.Service{
+			resp, err := c.cli.HeartbeatActive(ctx, &pb.Service{
 				Name:    c.uniqueID,
 				Address: c.options.localAddr,
 			})
@@ -69,15 +71,24 @@ func (c *activeClient) timeTick(ctx context.Context) {
 					log.Println(err)
 					os.Exit(1)
 				}
-				c.ticker = nil
 				err = c.Register(ctx)
 				if err != nil {
 					log.Println("retry register err:", err)
 				}
 				return
-			} else {
-				log.Println(c.uniqueID, c.options.localAddr, "heartbeat success")
 			}
+			info := resp.GetInfo()
+			if info != "" {
+				log.Println("get info:", info)
+				i := strings.Index(info, ":")
+				t, msg := info[:i], info[i+1:]
+				switch t {
+				case "registrar":
+					c.options.address = strings.Split(msg, ",")
+				}
+			}
+			log.Println(c.uniqueID, c.options.localAddr, "heartbeat success")
+
 		}
 	}
 }

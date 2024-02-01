@@ -1,7 +1,6 @@
 package pubsub
 
 import (
-	"errors"
 	"github.com/google/uuid"
 	"sync"
 )
@@ -33,14 +32,14 @@ func (m *Publisher) Close() {
 	m.ch = sync.Map{}
 }
 
-func (m *Publisher) CloseChannel(name string) error {
+func (m *Publisher) CloseChannel(name string) {
 	c, ok := m.ch.Load(name)
 	if !ok {
-		return errors.New(name + "don't exist")
+		return
 	}
-	close(c.(*channel).ch)
 	m.ch.Delete(name)
-	return nil
+	close(c.(*channel).ch)
+	return
 }
 
 func (m *Publisher) Publish(name string, msg interface{}) {
@@ -54,7 +53,7 @@ func (m *Publisher) Publish(name string, msg interface{}) {
 	c.ch <- msg
 }
 
-func (m *Publisher) AddSubscriber(s Subscriber, name string) string {
+func (m *Publisher) AddSubscriber(s Subscriber, name string, ids ...string) string {
 	var c *channel
 	ch, ok := m.ch.Load(name)
 	if !ok {
@@ -62,7 +61,12 @@ func (m *Publisher) AddSubscriber(s Subscriber, name string) string {
 	} else {
 		c = ch.(*channel)
 	}
-	id := uuid.NewString()
+	var id string
+	if len(ids) == 0 {
+		id = uuid.NewString()
+	} else {
+		id = ids[0]
+	}
 	c.subscribers.Store(id, s)
 	return id
 }
@@ -99,9 +103,15 @@ func (c *channel) Recv() {
 		select {
 		case msg, ok := <-c.ch:
 			if !ok {
+				c.subscribers.Range(func(key, value any) bool {
+					// TODO 有必要使用协程吗
+					value.(Subscriber).BeRemoved()
+					return true
+				})
 				return
 			}
 			c.subscribers.Range(func(key, value any) bool {
+				// TODO 有必要使用协程吗
 				value.(Subscriber).RecvMsg(msg)
 				return true
 			})

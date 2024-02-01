@@ -22,28 +22,85 @@ func TestNewRegistrarClient(t *testing.T) {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	//go func() {
+	//	t := time.NewTicker(time.Second * 2)
+	//	defer t.Stop()
+	//	for i := 0; i < 100; i++ {
+	//		select {
+	//		case <-t.C:
+	//			resp, err := cli.Discover(context.Background(), NAME)
+	//			if err != nil {
+	//				log.Println("discover err:", err)
+	//				continue
+	//			}
+	//			fmt.Println("discover in", resp)
+	//		}
+	//	}
+	//}()
 	select {}
 	time.Sleep(time.Second * 30)
 }
 
 func TestNewRegistrarClient2(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS2).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
+	defer cli.Close()
+	err := cli.Register(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
+	//go func() {
+	//	t := time.NewTicker(time.Second * 2)
+	//	defer t.Stop()
+	//	for i := 0; i < 100; i++ {
+	//		select {
+	//		case <-t.C:
+	//			resp, err := cli.Discover(context.Background(), NAME)
+	//			if err != nil {
+	//				log.Println("discover err:", err)
+	//				continue
+	//			}
+	//			fmt.Println("discover in", resp)
+	//		}
+	//	}
+	//}()
+	select {}
+	time.Sleep(time.Second * 30)
+}
+
+func TestNewRegistrarClient3(t *testing.T) {
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS3).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
+	defer cli.Close()
+	err := cli.Register(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
+	go func() {
+		t := time.NewTicker(time.Second * 2)
+		defer t.Stop()
+		for i := 0; i < 100; i++ {
+			select {
+			case <-t.C:
+				resp, err := cli.Discover(context.Background(), NAME)
+				if err != nil {
+					log.Println("discover err:", err)
+					continue
+				}
+				fmt.Println("discover in", resp)
+			}
+		}
+	}()
+	select {}
+	time.Sleep(time.Second * 30)
+}
+
+func TestRegistrarClient_Discover(t *testing.T) {
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"192.168.1.7:8080"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
 		log.Fatalln(err)
 	}
 	select {}
-	time.Sleep(time.Second * 30)
-}
-
-func TestRegistrarClient_Discover(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
-	defer cli.Close()
-	err := cli.Register(context.Background())
-	if err != nil {
-		log.Fatalln(err)
-	}
 }
 
 func TestNilChannel(t *testing.T) {
@@ -101,18 +158,45 @@ func TestGrpcConn(t *testing.T) {
 	}
 }
 
-func TestClose(t *testing.T) {
+func TestActiveClientClose(t *testing.T) {
 	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
 		log.Fatalln(err)
 	}
-	//time.Sleep(time.Second)
+	//select {}
+	time.Sleep(time.Second * 20)
 }
 
 func TestPassiveClient(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}).WithPassive(true))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}).WithPassive(true))
+	defer cli.Close()
+	err := cli.Register(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
+	select {}
+}
+
+func TestPassiveClientClose(t *testing.T) {
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}).WithPassive(true))
+	defer cli.Close()
+	err := cli.Register(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
+	time.Sleep(time.Second * 30)
+}
+
+func TestCloseChan(t *testing.T) {
+	ch := make(chan struct{})
+	close(ch)
+	fmt.Println(ch == closeChan)
+}
+
+func TestConfigNotice(t *testing.T) {
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {

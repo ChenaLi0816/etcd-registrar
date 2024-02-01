@@ -28,6 +28,7 @@ message RegisterRequest {
 
 message RegisterResponse {
   string service_name = 1;
+  repeated string registrar_addr = 2;
 }
 
 message CheckHealth {
@@ -35,7 +36,7 @@ message CheckHealth {
 }
 
 message Reply {
-
+  string info = 1;
 }
 
 message DiscoverRequest {

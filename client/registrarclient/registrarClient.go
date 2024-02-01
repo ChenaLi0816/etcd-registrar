@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
+	"github.com/ChenaLi0816/etcd-registrar/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"io"
@@ -30,6 +31,7 @@ type RegistrarClient interface {
 }
 
 type basicClient struct {
+	// TODO 多次switch发生冲突，dial和close同时
 	options   *ClientOpts
 	addrIndex int
 	uniqueID  string
@@ -125,7 +127,7 @@ func NewRegistrarClient(opts *ClientOpts) RegistrarClient {
 		c := &passiveClient{
 			basicClient: basicClient{
 				options:   opts,
-				addrIndex: 0,
+				addrIndex: int(utils.RandInt(int64(len(opts.address)), false)),
 				uniqueID:  "",
 				cli:       nil,
 				conn:      nil,
@@ -142,7 +144,7 @@ func NewRegistrarClient(opts *ClientOpts) RegistrarClient {
 		c := &activeClient{
 			basicClient: basicClient{
 				options:   opts,
-				addrIndex: 0,
+				addrIndex: int(utils.RandInt(int64(len(opts.address)), false)),
 				uniqueID:  "",
 				cli:       nil,
 				conn:      nil,

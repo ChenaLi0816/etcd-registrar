@@ -4,6 +4,7 @@ import "fmt"
 
 type Subscriber interface {
 	RecvMsg(interface{})
+	BeRemoved()
 }
 
 type SubscriberEvent struct {

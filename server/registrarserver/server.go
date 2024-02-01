@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
+	"github.com/ChenaLi0816/etcd-registrar/pubsub"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,18 +27,22 @@ type EtcdRegistrarServer struct {
 	LoadBalancer
 	ServiceNum uint64
 	locker     sync.Mutex
+	msgChan    sync.Map
 }
 
 var etcdServer *EtcdRegistrarServer = nil
 
-func NewEtcdRegistrarServer(addr string, bal balancer) *EtcdRegistrarServer {
+var publisher = pubsub.NewPublisher()
+
+func NewEtcdRegistrarServer(lisAddr string, etcdAddr string, bal balancer) *EtcdRegistrarServer {
 	if etcdServer == nil {
 		cli, err := clientv3.New(clientv3.Config{
-			Endpoints:   []string{addr},
+			Endpoints:   []string{etcdAddr},
 			DialTimeout: 3 * time.Second,
+			DialOptions: []grpc.DialOption{grpc.WithBlock()},
 		})
 		if err != nil {
-			log.Fatalln(err)
+			panic(err)
 		}
 		md := &etcdModel{Cli: cli}
 		etcdServer = &EtcdRegistrarServer{
@@ -43,9 +50,50 @@ func NewEtcdRegistrarServer(addr string, bal balancer) *EtcdRegistrarServer {
 			LoadBalancer: NewBalancer(bal, md),
 			ServiceNum:   0,
 			locker:       sync.Mutex{},
+			msgChan:      sync.Map{},
+		}
+		watCh := cli.Watch(context.Background(), "config", clientv3.WithPrefix())
+		go etcdServer.watchConfig(watCh)
+
+		curAddr := ""
+		get, err := cli.Get(context.Background(), "config/registrar")
+		if err != nil {
+			panic(err)
+		}
+		if len(get.Kvs) == 0 {
+			cli.Put(context.Background(), "config/registrar", curAddr)
+		} else {
+			curAddr = string(get.Kvs[0].Value)
+		}
+		if strings.Index(curAddr, lisAddr) == -1 {
+			for {
+				resp, err := cli.Txn(context.Background()).
+					If(clientv3.Compare(clientv3.Value("config/registrar"), "=", curAddr)).
+					Then(clientv3.OpPut("config/registrar", strings.Trim(fmt.Sprintf("%s,%s", curAddr, lisAddr), ","))).
+					Else(clientv3.OpGet("config/registrar")).Commit()
+				if err != nil {
+					panic(err)
+				}
+				if resp.Succeeded {
+					break
+				}
+				curAddr = string(resp.Responses[0].GetResponseRange().Kvs[0].Value)
+			}
 		}
 	}
 	return etcdServer
+}
+
+func (s *EtcdRegistrarServer) watchConfig(ch clientv3.WatchChan) {
+	for resp := range ch {
+		event := resp.Events[0]
+		if event.Type == clientv3.EventTypePut {
+			t := strings.TrimPrefix(string(event.Kv.Key), "config/")
+			if t == "registrar" {
+				publisher.Publish("config", "registrar:"+string(event.Kv.Value))
+			}
+		}
+	}
 }
 
 func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
@@ -55,7 +103,6 @@ func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequ
 		return nil, errors.New("string err: name or address is null")
 	}
 	v, leaseID, err := s.getKeyByValue(ctx, name, addr)
-	// TODO 分布式锁，有可能两边读的时候都没有，写的时候都写了
 	if err == nil {
 		if _, err := s.Cli.KeepAliveOnce(ctx, leaseID); err != nil {
 			return nil, fmt.Errorf("keepalive err: %w", err)
@@ -85,9 +132,18 @@ func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequ
 	}
 
 	log.Println("put key success", name, addr)
+	publisher.AddSubscriber(newConfigSubscriber(name), "config", name)
+	var reAddr []string
+	get, err := s.Cli.Get(context.Background(), "config/registrar")
+	if err != nil || len(get.Kvs) == 0 {
+		reAddr = nil
+	} else {
+		reAddr = strings.Split(string(get.Kvs[0].Value), ",")
+	}
 
 	return &pb.RegisterResponse{
-		ServiceName: name,
+		ServiceName:   name,
+		RegistrarAddr: reAddr,
 	}, nil
 }
 
@@ -99,6 +155,7 @@ func (s *EtcdRegistrarServer) Logout(ctx context.Context, svc *pb.Service) (*pb.
 		return nil, err
 	}
 	log.Println(name, addr, "logout.")
+	publisher.RemoveSubscriber(name, "config")
 	return &pb.Reply{}, nil
 }
 
@@ -118,7 +175,17 @@ func (s *EtcdRegistrarServer) HeartbeatActive(ctx context.Context, svc *pb.Servi
 		return nil, fmt.Errorf("keepalive err: %w", err)
 	}
 	log.Println(name, "in", addr, "keepalive success")
-	return &pb.Reply{}, nil
+
+	info := ""
+	c, ok := s.msgChan.Load(name)
+	if ok {
+		ch := c.(chan string)
+		if len(ch) != 0 {
+			info = <-ch
+			log.Println("fetch info:", info)
+		}
+	}
+	return &pb.Reply{Info: info}, nil
 }
 
 func (s *EtcdRegistrarServer) HeartbeatPassive(stream pb.EtcdRegistrar_HeartbeatPassiveServer) error {
@@ -139,12 +206,23 @@ func (s *EtcdRegistrarServer) HeartbeatPassive(stream pb.EtcdRegistrar_Heartbeat
 		return err
 	}
 	ticker := time.NewTicker(time.Duration(resp.TTL-HEARTBEATOFFSET) * time.Second)
-	defer ticker.Stop()
+	defer func() {
+		ticker.Stop()
+		publisher.RemoveSubscriber(name, "config")
+	}()
 
 	for {
 		select {
 		case <-ticker.C:
-			err = stream.Send(&pb.Reply{})
+			info := ""
+			c, ok := s.msgChan.Load(name)
+			if ok {
+				ch := c.(chan string)
+				if len(ch) != 0 {
+					info = <-ch
+				}
+			}
+			err = stream.Send(&pb.Reply{Info: info})
 			if err != nil {
 				log.Println("heartbeat passive send err:", err)
 				return err

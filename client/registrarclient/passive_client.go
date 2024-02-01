@@ -5,6 +5,7 @@ import (
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	"log"
 	"os"
+	"strings"
 )
 
 type passiveClient struct {
@@ -38,6 +39,11 @@ func (c *passiveClient) Register(ctx context.Context) error {
 		}
 	}
 	c.uniqueID = resp.GetServiceName()
+	if resp.RegistrarAddr != nil {
+		log.Println("get addr:", resp.RegistrarAddr)
+		c.options.address = resp.RegistrarAddr
+	}
+
 	log.Println("register success")
 	c.closeChan = make(chan struct{}, 1)
 	go c.heartbeat(ctx)
@@ -52,7 +58,10 @@ func (c *passiveClient) heartbeat(ctx context.Context) {
 	}
 	defer func() {
 		_ = stream.CloseSend()
-		if c.closeChan != closeChan {
+		select {
+		case <-c.closeChan:
+			log.Println("stop heartbeat")
+		default:
 			log.Println("switch connection")
 			err = c.switchConnection(ctx)
 			if err != nil {
@@ -75,10 +84,20 @@ func (c *passiveClient) heartbeat(ctx context.Context) {
 		case <-c.closeChan:
 			return
 		default:
-			_, err = stream.Recv()
+			resp, err := stream.Recv()
 			if err != nil {
 				log.Println("stream recv err:", err)
 				return
+			}
+			info := resp.GetInfo()
+			if info != "" {
+				log.Println("get info:", info)
+				i := strings.Index(info, ":")
+				t, msg := info[:i], info[i+1:]
+				switch t {
+				case "registrar":
+					c.options.address = strings.Split(msg, ",")
+				}
 			}
 			if err = stream.Send(&pb.CheckHealth{}); err != nil {
 				log.Println("stream send err:", err)
@@ -96,7 +115,7 @@ func (c *passiveClient) switchConnection(ctx context.Context) error {
 }
 
 func (c *passiveClient) close(reason bool) {
-	if c.closeChan != nil {
+	if c.closeChan != nil && !reason {
 		close(c.closeChan)
 	}
 	c.basicClient.close(reason)
