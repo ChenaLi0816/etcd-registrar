@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	HEARTBEATOFFSET = 1
+	HEARTBEATOFFSET  = 1
+	configExpireTime = 30
 )
 
 type EtcdRegistrarServer struct {
@@ -28,7 +29,10 @@ type EtcdRegistrarServer struct {
 	ServiceNum uint64
 	locker     sync.Mutex
 	msgChan    sync.Map
+	lisAddr    string
 }
+
+type newValueFunc func(oldValue string, funcArgs ...string) (string, bool)
 
 var etcdServer *EtcdRegistrarServer = nil
 
@@ -51,37 +55,65 @@ func NewEtcdRegistrarServer(lisAddr string, etcdAddr string, bal balancer) *Etcd
 			ServiceNum:   0,
 			locker:       sync.Mutex{},
 			msgChan:      sync.Map{},
+			lisAddr:      lisAddr,
 		}
-		watCh := cli.Watch(context.Background(), "config", clientv3.WithPrefix())
-		go etcdServer.watchConfig(watCh)
-
-		curAddr := ""
-		get, err := cli.Get(context.Background(), "config/registrar")
+		_, err = etcdServer.putGetTxn(context.Background(), "config/registrar", configExpireTime, func(curAddr string, funcArgs ...string) (string, bool) {
+			lisAddr := funcArgs[0]
+			return strings.Trim(fmt.Sprintf("%s,%s", curAddr, lisAddr), ","), strings.Index(curAddr, lisAddr) == -1
+		}, lisAddr)
 		if err != nil {
 			panic(err)
 		}
-		if len(get.Kvs) == 0 {
-			cli.Put(context.Background(), "config/registrar", curAddr)
-		} else {
-			curAddr = string(get.Kvs[0].Value)
-		}
-		if strings.Index(curAddr, lisAddr) == -1 {
-			for {
-				resp, err := cli.Txn(context.Background()).
-					If(clientv3.Compare(clientv3.Value("config/registrar"), "=", curAddr)).
-					Then(clientv3.OpPut("config/registrar", strings.Trim(fmt.Sprintf("%s,%s", curAddr, lisAddr), ","))).
-					Else(clientv3.OpGet("config/registrar")).Commit()
-				if err != nil {
-					panic(err)
-				}
-				if resp.Succeeded {
-					break
-				}
-				curAddr = string(resp.Responses[0].GetResponseRange().Kvs[0].Value)
-			}
-		}
+
+		watCh := cli.Watch(context.Background(), "config", clientv3.WithPrefix())
+		go etcdServer.watchConfig(watCh)
 	}
 	return etcdServer
+}
+
+func (s *EtcdRegistrarServer) putGetTxn(ctx context.Context, key string, expireTime int64, newValue newValueFunc, funcArgs ...string) (string, error) {
+	oldValue := ""
+	newV, _ := newValue(oldValue, funcArgs...)
+
+	lres, err := s.Cli.Grant(ctx, expireTime)
+	if err != nil {
+		return "", err
+	}
+	leaseID := lres.ID
+
+	resp, err := s.Cli.Txn(ctx).
+		If(clientv3.Compare(clientv3.CreateRevision(key), ">", 0)).
+		Then(clientv3.OpGet(key)).
+		Else(clientv3.OpPut(key, newV, clientv3.WithLease(leaseID))).Commit()
+	if err != nil {
+		return "", err
+	}
+	if !resp.Succeeded {
+		return oldValue, nil
+	}
+	s.Cli.Revoke(ctx, leaseID)
+
+	oldValue = string(resp.Responses[0].GetResponseRange().Kvs[0].Value)
+	leaseID = clientv3.LeaseID(resp.Responses[0].GetResponseRange().Kvs[0].Lease)
+
+	for {
+		newV, ok := newValue(oldValue, funcArgs...)
+		if !ok {
+			break
+		}
+		resp, err := s.Cli.Txn(ctx).
+			If(clientv3.Compare(clientv3.Value(key), "=", oldValue)).
+			Then(clientv3.OpPut(key, newV, clientv3.WithLease(leaseID))).
+			Else(clientv3.OpGet(key)).Commit()
+		if err != nil {
+			return "", err
+		}
+		if resp.Succeeded {
+			break
+		}
+		oldValue = string(resp.Responses[0].GetResponseRange().Kvs[0].Value)
+	}
+	return oldValue, nil
 }
 
 func (s *EtcdRegistrarServer) watchConfig(ch clientv3.WatchChan) {
@@ -91,6 +123,16 @@ func (s *EtcdRegistrarServer) watchConfig(ch clientv3.WatchChan) {
 			t := strings.TrimPrefix(string(event.Kv.Key), "config/")
 			if t == "registrar" {
 				publisher.Publish("config", "registrar:"+string(event.Kv.Value))
+			}
+		} else {
+			log.Println("watch delete")
+			// Type Delete
+			_, err := etcdServer.putGetTxn(context.Background(), "config/registrar", configExpireTime, func(curAddr string, funcArgs ...string) (string, bool) {
+				lisAddr := funcArgs[0]
+				return strings.Trim(fmt.Sprintf("%s,%s", curAddr, lisAddr), ","), strings.Index(curAddr, lisAddr) == -1
+			}, s.lisAddr)
+			if err != nil {
+				panic(err)
 			}
 		}
 	}
@@ -180,7 +222,7 @@ func (s *EtcdRegistrarServer) HeartbeatActive(ctx context.Context, svc *pb.Servi
 	c, ok := s.msgChan.Load(name)
 	if ok {
 		ch := c.(chan string)
-		if len(ch) != 0 {
+		for len(ch) != 0 {
 			info = <-ch
 			log.Println("fetch info:", info)
 		}
@@ -218,7 +260,7 @@ func (s *EtcdRegistrarServer) HeartbeatPassive(stream pb.EtcdRegistrar_Heartbeat
 			c, ok := s.msgChan.Load(name)
 			if ok {
 				ch := c.(chan string)
-				if len(ch) != 0 {
+				for len(ch) != 0 {
 					info = <-ch
 				}
 			}

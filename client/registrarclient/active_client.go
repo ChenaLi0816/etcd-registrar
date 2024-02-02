@@ -54,6 +54,7 @@ func (c *activeClient) switchConnection(ctx context.Context) error {
 }
 
 func (c *activeClient) timeTick(ctx context.Context) {
+	defer c.ticker.Stop()
 	for {
 		select {
 		case <-c.closeChan:
@@ -103,9 +104,8 @@ func (c *activeClient) logout(ctx context.Context) error {
 
 // TODO new了但没注册
 func (c *activeClient) close(reason bool) {
-	if c.ticker != nil {
+	if !reason {
 		close(c.closeChan)
-		c.ticker.Stop()
 	}
 	c.basicClient.close(reason)
 }
