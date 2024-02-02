@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
 	"github.com/ChenaLi0816/etcd-registrar/pubsub"
+	"github.com/ChenaLi0816/etcd-registrar/utils"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
@@ -30,6 +31,7 @@ type EtcdRegistrarServer struct {
 	locker     sync.Mutex
 	msgChan    sync.Map
 	lisAddr    string
+	version    string
 }
 
 type newValueFunc func(oldValue string, funcArgs ...string) (string, bool)
@@ -49,6 +51,10 @@ func NewEtcdRegistrarServer(lisAddr string, etcdAddr string, bal balancer) *Etcd
 			panic(err)
 		}
 		md := &etcdModel{Cli: cli}
+		resp, _ := cli.Get(context.Background(), "config/version")
+		if len(resp.Kvs) == 0 {
+			panic("no version info")
+		}
 		etcdServer = &EtcdRegistrarServer{
 			etcdModel:    md,
 			LoadBalancer: NewBalancer(bal, md),
@@ -56,6 +62,7 @@ func NewEtcdRegistrarServer(lisAddr string, etcdAddr string, bal balancer) *Etcd
 			locker:       sync.Mutex{},
 			msgChan:      sync.Map{},
 			lisAddr:      lisAddr,
+			version:      strings.Split(string(resp.Kvs[0].Value), ":")[0],
 		}
 		_, err = etcdServer.putGetTxn(context.Background(), "config/registrar", configExpireTime, func(curAddr string, funcArgs ...string) (string, bool) {
 			lisAddr := funcArgs[0]
@@ -119,21 +126,43 @@ func (s *EtcdRegistrarServer) putGetTxn(ctx context.Context, key string, expireT
 func (s *EtcdRegistrarServer) watchConfig(ch clientv3.WatchChan) {
 	for resp := range ch {
 		event := resp.Events[0]
+		t := strings.TrimPrefix(string(event.Kv.Key), "config/")
 		if event.Type == clientv3.EventTypePut {
-			t := strings.TrimPrefix(string(event.Kv.Key), "config/")
-			if t == "registrar" {
-				publisher.Publish("config", "registrar:"+string(event.Kv.Value))
+			v := string(event.Kv.Value)
+			switch t {
+			case "registrar":
+				publisher.Publish("config", "registrar:"+v)
+			case "version":
+
+				ver := v
+				check := false
+				if i := strings.Index(v, ":"); i != -1 {
+					ver = v[:i]
+					opt := v[i+1:]
+					if opt == "check" {
+						check = true
+					}
+				}
+				s.version = ver
+				if check {
+					publisher.Publish("config", "version:"+ver)
+				}
 			}
 		} else {
-			log.Println("watch delete")
 			// Type Delete
-			_, err := etcdServer.putGetTxn(context.Background(), "config/registrar", configExpireTime, func(curAddr string, funcArgs ...string) (string, bool) {
-				lisAddr := funcArgs[0]
-				return strings.Trim(fmt.Sprintf("%s,%s", curAddr, lisAddr), ","), strings.Index(curAddr, lisAddr) == -1
-			}, s.lisAddr)
-			if err != nil {
-				panic(err)
+			switch t {
+			case "registrar":
+				_, err := etcdServer.putGetTxn(context.Background(), "config/registrar", configExpireTime, func(curAddr string, funcArgs ...string) (string, bool) {
+					lisAddr := funcArgs[0]
+					return strings.Trim(fmt.Sprintf("%s,%s", curAddr, lisAddr), ","), strings.Index(curAddr, lisAddr) == -1
+				}, s.lisAddr)
+				if err != nil {
+					panic(err)
+				}
+			case "version":
+
 			}
+
 		}
 	}
 }
@@ -160,7 +189,7 @@ func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequ
 	// TODO 锁
 	s.locker.Lock()
 	s.ServiceNum++
-	name = fmt.Sprintf("%s/%d_%d", name, time.Now().Unix(), s.ServiceNum)
+	name = fmt.Sprintf("%s/%s/%d_%d", req.GetVersion(), name, time.Now().Unix(), s.ServiceNum)
 	s.locker.Unlock()
 
 	err = s.newService(ctx, &serviceParams{
@@ -168,6 +197,7 @@ func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequ
 		addr:      addr,
 		leaseTime: leaseTime,
 		weight:    req.GetWeight(),
+		version:   req.GetVersion(),
 	})
 	if err != nil {
 		return nil, err
@@ -175,6 +205,7 @@ func (s *EtcdRegistrarServer) Register(ctx context.Context, req *pb.RegisterRequ
 
 	log.Println("put key success", name, addr)
 	publisher.AddSubscriber(newConfigSubscriber(name), "config", name)
+
 	var reAddr []string
 	get, err := s.Cli.Get(context.Background(), "config/registrar")
 	if err != nil || len(get.Kvs) == 0 {
@@ -223,7 +254,7 @@ func (s *EtcdRegistrarServer) HeartbeatActive(ctx context.Context, svc *pb.Servi
 	if ok {
 		ch := c.(chan string)
 		for len(ch) != 0 {
-			info = <-ch
+			info = utils.InfoJoin(info, <-ch)
 			log.Println("fetch info:", info)
 		}
 	}
@@ -261,7 +292,8 @@ func (s *EtcdRegistrarServer) HeartbeatPassive(stream pb.EtcdRegistrar_Heartbeat
 			if ok {
 				ch := c.(chan string)
 				for len(ch) != 0 {
-					info = <-ch
+					info = utils.InfoJoin(info, <-ch)
+					log.Println("fetch info:", info)
 				}
 			}
 			err = stream.Send(&pb.Reply{Info: info})
@@ -290,7 +322,7 @@ func (s *EtcdRegistrarServer) HeartbeatPassive(stream pb.EtcdRegistrar_Heartbeat
 
 func (s *EtcdRegistrarServer) Discover(ctx context.Context, req *pb.DiscoverRequest) (*pb.DiscoverResponse, error) {
 	name := req.GetName()
-	_, addr, err := s.selectService(ctx, name)
+	_, addr, err := s.selectService(ctx, fmt.Sprintf("%s/%s", s.version, name))
 	if err != nil {
 		log.Println("discover err:", err)
 		return nil, err
@@ -311,7 +343,7 @@ func (s *EtcdRegistrarServer) Subscribe(req *pb.SubscribeRequest, stream pb.Etcd
 	}
 	bctx := peer.NewContext(context.Background(), p)
 choose:
-	svcname, addr, err := s.selectService(bctx, name)
+	svcname, addr, err := s.selectService(bctx, fmt.Sprintf("%s/%s", s.version, name))
 	if err != nil {
 		log.Println("subscribe err:", err)
 		err = stream.Send(&pb.SubscribeResponse{

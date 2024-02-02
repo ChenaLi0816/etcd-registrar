@@ -30,6 +30,7 @@ type serviceParams struct {
 	addr      string
 	leaseTime int64
 	weight    int32
+	version   string
 }
 
 type LoadBalancer interface {

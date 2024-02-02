@@ -11,12 +11,15 @@ import (
 const (
 	NAME     = "test"
 	ADDRESS1 = "127.0.0.1:2221"
+	VERSION1 = "1"
+	VERSION2 = "2"
+	VERSION3 = "3"
 	ADDRESS2 = "127.0.0.1:2222"
 	ADDRESS3 = "127.0.0.1:2223"
 )
 
 func TestNewRegistrarClient(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
@@ -42,7 +45,7 @@ func TestNewRegistrarClient(t *testing.T) {
 }
 
 func TestNewRegistrarClient2(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS2).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS2, VERSION1).WithWeight(3).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
@@ -68,7 +71,7 @@ func TestNewRegistrarClient2(t *testing.T) {
 }
 
 func TestNewRegistrarClient3(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS3).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081", "localhost:8082"}))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS3, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
@@ -90,11 +93,11 @@ func TestNewRegistrarClient3(t *testing.T) {
 		}
 	}()
 	select {}
-	time.Sleep(time.Second * 30)
+	//time.Sleep(time.Second * 30)
 }
 
 func TestRegistrarClient_Discover(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"192.168.1.7:8080"}))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"192.168.1.7:8080"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
@@ -118,19 +121,19 @@ func closeAfter(cli RegistrarClient, t time.Duration) {
 }
 
 func TestSubscribe(t *testing.T) {
-	cli1 := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithRegistrarAddress([]string{"localhost:8080"}))
+	cli1 := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithRegistrarAddress([]string{"localhost:8080"}))
 	go closeAfter(cli1, time.Second*5)
 	err := cli1.Register(context.Background())
 	if err != nil {
 		log.Fatalln(err)
 	}
-	cli2 := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS2).WithRegistrarAddress([]string{"localhost:8080"}))
+	cli2 := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS2, VERSION1).WithRegistrarAddress([]string{"localhost:8080"}))
 	go closeAfter(cli2, time.Second*10)
 	err = cli2.Register(context.Background())
 	if err != nil {
 		log.Fatalln(err)
 	}
-	cli3 := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS3).WithRegistrarAddress([]string{"localhost:8080"}))
+	cli3 := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS3, VERSION1).WithRegistrarAddress([]string{"localhost:8080"}))
 	go closeAfter(cli3, time.Second*15)
 	err = cli3.Register(context.Background())
 	if err != nil {
@@ -159,7 +162,7 @@ func TestGrpcConn(t *testing.T) {
 }
 
 func TestActiveClientClose(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
@@ -170,7 +173,7 @@ func TestActiveClientClose(t *testing.T) {
 }
 
 func TestPassiveClient(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}).WithPassive(true))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080", "localhost:8081"}).WithPassive(true))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
@@ -180,13 +183,13 @@ func TestPassiveClient(t *testing.T) {
 }
 
 func TestPassiveClientClose(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}).WithPassive(true))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}).WithPassive(true))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {
 		log.Fatalln(err)
 	}
-	time.Sleep(time.Second * 30)
+	time.Sleep(time.Second * 20)
 }
 
 func TestCloseChan(t *testing.T) {
@@ -196,7 +199,7 @@ func TestCloseChan(t *testing.T) {
 }
 
 func TestConfigNotice(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
 	defer cli.Close()
 	err := cli.Register(context.Background())
 	if err != nil {

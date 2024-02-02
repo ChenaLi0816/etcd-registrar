@@ -23,6 +23,8 @@ type ClientOpts struct {
 	address   []string
 	leaseTime int64
 	passive   bool
+	weight    int32
+	version   string
 }
 
 func NewDefaultOptions() *ClientOpts {
@@ -33,6 +35,8 @@ func NewDefaultOptions() *ClientOpts {
 		address:   []string{},
 		leaseTime: DEFAULT_LEASE_TIME,
 		passive:   false,
+		weight:    1,
+		version:   "",
 	}
 }
 
@@ -43,8 +47,8 @@ func (opt *ClientOpts) ApplyOpts(option []ClientOption) {
 		}
 		op.apply(opt)
 	}
-	if opt.name == "" || opt.localAddr == "" {
-		panic("name or local address is null.")
+	if opt.name == "" || opt.localAddr == "" || opt.version == "" {
+		panic("name, local address or version is null.")
 	}
 	if len(opt.address) == 0 {
 		panic("registrar address is null")
@@ -61,9 +65,15 @@ func (opt *ClientOpts) WithRegistrarAddress(addr []string) *ClientOpts {
 	return opt
 }
 
-func (opt *ClientOpts) WithService(name string, addr string) *ClientOpts {
+func (opt *ClientOpts) WithWeight(w int32) *ClientOpts {
+	opt.weight = w
+	return opt
+}
+
+func (opt *ClientOpts) WithService(name, addr, version string) *ClientOpts {
 	opt.name = name
 	opt.localAddr = addr
+	opt.version = version
 	return opt
 }
 

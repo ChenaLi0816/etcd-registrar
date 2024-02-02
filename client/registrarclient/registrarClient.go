@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync/atomic"
 	"time"
 )
 
@@ -36,8 +37,9 @@ type basicClient struct {
 	addrIndex int
 	uniqueID  string
 
-	cli  pb.EtcdRegistrarClient
-	conn *grpc.ClientConn
+	cli      pb.EtcdRegistrarClient
+	conn     *grpc.ClientConn
+	isClosed atomic.Bool
 }
 
 func (c *basicClient) newGrpcConn(addr string) error {
@@ -71,13 +73,11 @@ func (c *basicClient) close(reason bool) {
 		if err := c.logout(context.Background()); err != nil {
 			log.Println("logout err:", err)
 		}
-		c.cli = nil
 	}
 	if c.conn != nil {
 		if err := c.conn.Close(); err != nil {
 			log.Println("conn close err:", err)
 		}
-		c.conn = nil
 	}
 }
 
@@ -131,9 +131,11 @@ func NewRegistrarClient(opts *ClientOpts) RegistrarClient {
 				uniqueID:  "",
 				cli:       nil,
 				conn:      nil,
+				isClosed:  atomic.Bool{},
 			},
 			closeChan: nil,
 		}
+		c.basicClient.isClosed.Store(false)
 		err := c.switchConnection(context.Background())
 		if err != nil {
 			log.Println(err)
@@ -148,10 +150,12 @@ func NewRegistrarClient(opts *ClientOpts) RegistrarClient {
 				uniqueID:  "",
 				cli:       nil,
 				conn:      nil,
+				isClosed:  atomic.Bool{},
 			},
 			ticker:    nil,
 			closeChan: nil,
 		}
+		c.isClosed.Store(false)
 		err := c.switchConnection(context.Background())
 		if err != nil {
 			log.Println(err)

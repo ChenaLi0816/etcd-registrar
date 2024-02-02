@@ -28,6 +28,8 @@ func (c *passiveClient) Register(ctx context.Context) error {
 		Name:      c.options.name,
 		Address:   c.options.localAddr,
 		LeaseTime: c.options.leaseTime,
+		Weight:    c.options.weight,
+		Version:   c.options.version,
 	}
 	resp, err := c.cli.Register(ctx, req)
 	if err != nil {
@@ -89,14 +91,22 @@ func (c *passiveClient) heartbeat(ctx context.Context) {
 				log.Println("stream recv err:", err)
 				return
 			}
-			info := resp.GetInfo()
-			if info != "" {
-				log.Println("get info:", info)
-				i := strings.Index(info, ":")
-				t, msg := info[:i], info[i+1:]
-				switch t {
-				case "registrar":
-					c.options.address = strings.Split(msg, ",")
+			rawInfo := resp.GetInfo()
+			if rawInfo != "" {
+				log.Println("get info:", rawInfo)
+				for _, info := range strings.Split(rawInfo, ";") {
+					i := strings.Index(info, ":")
+					t, msg := info[:i], info[i+1:]
+					switch t {
+					case "registrar":
+						c.options.address = strings.Split(msg, ",")
+					case "version":
+						if c.options.version != msg {
+							log.Printf("version %s confirmed, version %s exit", msg, c.options.version)
+							c.Close()
+							return
+						}
+					}
 				}
 			}
 			if err = stream.Send(&pb.CheckHealth{}); err != nil {
@@ -122,5 +132,8 @@ func (c *passiveClient) close(reason bool) {
 }
 
 func (c *passiveClient) Close() {
+	if c.isClosed.Swap(true) {
+		return
+	}
 	c.close(false)
 }

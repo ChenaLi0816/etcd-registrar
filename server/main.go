@@ -15,7 +15,7 @@ func main() {
 	lisAddr := "127.0.0.1" + lisPort
 	lis, _ := net.Listen("tcp", lisAddr)
 	grpcServer := grpc.NewServer()
-	pb.RegisterEtcdRegistrarServer(grpcServer, registrarserver.NewEtcdRegistrarServer(lisAddr, "127.0.0.1"+etcdPort, registrarserver.RoundRobin))
+	pb.RegisterEtcdRegistrarServer(grpcServer, registrarserver.NewEtcdRegistrarServer(lisAddr, "127.0.0.1"+etcdPort, registrarserver.WeightRoundRobin))
 	log.Println("server prepared on", lisPort)
 	_ = grpcServer.Serve(lis)
 }

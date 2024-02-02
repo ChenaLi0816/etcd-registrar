@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"strconv"
+	"strings"
 )
 
 func RandInt(max int64, debug bool) int64 {
@@ -43,4 +44,19 @@ func Hash(ip string) uint32 {
 	hasher.Write([]byte(ip))
 	hashBytes := hasher.Sum(nil)
 	return binary.BigEndian.Uint32(hashBytes)
+}
+
+func InfoJoin(info string, msg string) string {
+	i1 := strings.Index(info, ":")
+	if i1 == -1 {
+		return msg
+	}
+	i2 := strings.Index(msg, ":")
+	if i2 == -1 {
+		return info
+	}
+	if info[:i1] == msg[:i2] {
+		return msg
+	}
+	return info + ";" + msg
 }

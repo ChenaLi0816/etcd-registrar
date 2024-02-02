@@ -22,7 +22,7 @@ func TestTxn(t *testing.T) {
 	key := "key"
 
 	s := &EtcdRegistrarServer{etcdModel: &etcdModel{Cli: cli}}
-	old, err := s.putGetTxn(ctx, key, func(oldValue string, funcArgs ...string) (string, bool) {
+	old, err := s.putGetTxn(ctx, key, 20, func(oldValue string, funcArgs ...string) (string, bool) {
 		return oldValue + "1", true
 	})
 	fmt.Println("old:", old)
