@@ -3,7 +3,11 @@ package registrarclient
 import (
 	"context"
 	"fmt"
+	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/grpc"
 	"log"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -199,11 +203,133 @@ func TestCloseChan(t *testing.T) {
 }
 
 func TestConfigNotice(t *testing.T) {
-	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}))
+	cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"127.0.0.1:8080"}))
 	defer cli.Close()
+	time.Sleep(time.Second * 2)
 	err := cli.Register(context.Background())
 	if err != nil {
 		log.Fatalln(err)
 	}
 	select {}
+	time.Sleep(time.Second * 15)
+}
+
+var wrong = atomic.Int32{}
+
+func TestMaxEtcdConnect(t *testing.T) {
+	const MaxConnect = 1000
+	const etcdAddr = "127.0.0.1:2379"
+	wrong.Store(0)
+	wg := sync.WaitGroup{}
+	wg.Add(MaxConnect)
+	for i := 0; i < MaxConnect; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			cli, err := clientv3.New(clientv3.Config{
+				Endpoints:   []string{etcdAddr},
+				DialTimeout: 3 * time.Second,
+				DialOptions: []grpc.DialOption{grpc.WithBlock()},
+			})
+			if err != nil {
+				fmt.Println(i, "err:", err)
+				wrong.Add(1)
+				return
+			}
+			defer cli.Close()
+			resp, _ := cli.Grant(context.Background(), 5)
+			cli.Put(context.Background(), fmt.Sprintf("k%d", i), "ok", clientv3.WithLease(resp.ID))
+			fmt.Println(i, "put ok")
+
+			time.Sleep(time.Second * 10)
+		}()
+	}
+	wg.Wait()
+	fmt.Println("err cli:", wrong.Load())
+	time.Sleep(time.Second * 3)
+}
+
+func TestMaxRegistrarConnect(t *testing.T) {
+	const MaxConnect = 10
+	wrong.Store(0)
+	wg := sync.WaitGroup{}
+	wg.Add(MaxConnect)
+	for i := 0; i < MaxConnect; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if err := recover(); err != nil {
+					fmt.Println(i, "err:", err)
+					wrong.Add(1)
+				}
+			}()
+			cli := NewRegistrarClient(NewDefaultOptions().WithService(NAME, ADDRESS1, VERSION1).WithLeaseTime(5).WithRegistrarAddress([]string{"localhost:8080"}).WithPassive(true))
+			defer cli.Close()
+			err := cli.Register(context.Background())
+			if err != nil {
+				log.Println(i, "resg err:", err)
+				return
+			}
+			log.Println(i, "resg suc")
+			time.Sleep(time.Second * 10)
+			//
+		}()
+	}
+	wg.Wait()
+	fmt.Println("err:", wrong.Load())
+	time.Sleep(time.Second * 3)
+}
+
+func TestDefer(t *testing.T) {
+
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println("err:", err)
+		}
+	}()
+	panic("err")
+	defer fmt.Println(1)
+}
+
+func TestContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func(ctx context.Context) {
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Println("context done:", ctx.Err())
+				return
+			}
+		}
+	}(ctx)
+	time.Sleep(time.Second * 3)
+	cancel()
+	time.Sleep(time.Second)
+}
+
+func TestEtcdConn(t *testing.T) {
+	const etcdAddr = "127.0.0.1:4379"
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{etcdAddr},
+		DialTimeout: 3 * time.Second,
+		DialOptions: []grpc.DialOption{grpc.WithBlock()},
+	})
+	if err != nil {
+		fmt.Println("err:", err)
+		return
+	}
+	defer cli.Close()
+	//_, err = cli.Put(context.Background(), "config/version", "2")
+	//if err != nil {
+	//	log.Println(err)
+	//	return
+	//}
+	get, err := cli.Get(context.Background(), "key")
+	if len(get.Kvs) == 0 {
+		log.Println("len 0")
+		return
+	}
+	fmt.Println("key:", string(get.Kvs[0].Key), "va:", string(get.Kvs[0].Value))
+	fmt.Println("ok")
 }

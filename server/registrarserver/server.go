@@ -40,10 +40,10 @@ var etcdServer *EtcdRegistrarServer = nil
 
 var publisher = pubsub.NewPublisher()
 
-func NewEtcdRegistrarServer(lisAddr string, etcdAddr string, bal balancer) *EtcdRegistrarServer {
+func NewEtcdRegistrarServer(lisAddr string, etcdAddr []string, bal balancer) *EtcdRegistrarServer {
 	if etcdServer == nil {
 		cli, err := clientv3.New(clientv3.Config{
-			Endpoints:   []string{etcdAddr},
+			Endpoints:   etcdAddr,
 			DialTimeout: 3 * time.Second,
 			DialOptions: []grpc.DialOption{grpc.WithBlock()},
 		})

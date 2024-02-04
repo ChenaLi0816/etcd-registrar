@@ -36,9 +36,16 @@ func (c *passiveClient) Register(ctx context.Context) error {
 		log.Println("register err:", err, "now retry")
 		err = c.switchConnection(ctx)
 		if err != nil {
+			if err == errCliIsClosing {
+				return err
+			}
 			log.Println(err)
 			os.Exit(1)
 		}
+		resp, err = c.cli.Register(ctx, req)
+	}
+	if err != nil {
+		return err
 	}
 	c.uniqueID = resp.GetServiceName()
 	if resp.RegistrarAddr != nil {
@@ -62,11 +69,14 @@ func (c *passiveClient) heartbeat(ctx context.Context) {
 		_ = stream.CloseSend()
 		select {
 		case <-c.closeChan:
-			log.Println("stop heartbeat")
+			log.Println(c.uniqueID, "stop heartbeat")
 		default:
 			log.Println("switch connection")
 			err = c.switchConnection(ctx)
 			if err != nil {
+				if err == errCliIsClosing {
+					return
+				}
 				log.Println(err)
 				os.Exit(1)
 			}
@@ -119,21 +129,17 @@ func (c *passiveClient) heartbeat(ctx context.Context) {
 	}
 }
 
-func (c *passiveClient) switchConnection(ctx context.Context) error {
-	c.close(true)
-	return c.basicClient.switchConnection(ctx)
-}
-
-func (c *passiveClient) close(reason bool) {
-	if c.closeChan != nil && !reason {
+func (c *passiveClient) close() {
+	if c.closeChan != nil {
 		close(c.closeChan)
 	}
-	c.basicClient.close(reason)
+	c.basicClient.close(false)
+
 }
 
 func (c *passiveClient) Close() {
 	if c.isClosed.Swap(true) {
 		return
 	}
-	c.close(false)
+	c.close()
 }

@@ -3,6 +3,7 @@ package registrarclient
 import (
 	"context"
 	"github.com/ChenaLi0816/etcd-registrar/proto/pb"
+	"google.golang.org/grpc"
 	"log"
 	"os"
 	"strings"
@@ -32,9 +33,13 @@ func (c *activeClient) Register(ctx context.Context) error {
 		log.Println("register err:", err, "now retry")
 		err = c.switchConnection(ctx)
 		if err != nil {
+			if err == errCliIsClosing {
+				return err
+			}
 			log.Println(err)
 			os.Exit(1)
 		}
+		resp, err = c.cli.Register(ctx, req)
 	}
 	c.uniqueID = resp.GetServiceName()
 	c.ticker = time.NewTicker(time.Second * time.Duration(c.options.leaseTime-HEARTBEATOFFSET))
@@ -50,11 +55,6 @@ func (c *activeClient) Register(ctx context.Context) error {
 	return nil
 }
 
-func (c *activeClient) switchConnection(ctx context.Context) error {
-	c.close(true)
-	return c.basicClient.switchConnection(ctx)
-}
-
 func (c *activeClient) timeTick(ctx context.Context) {
 	defer c.ticker.Stop()
 	for {
@@ -68,9 +68,15 @@ func (c *activeClient) timeTick(ctx context.Context) {
 				Address: c.options.localAddr,
 			})
 			if err != nil {
+				if err == grpc.ErrClientConnClosing {
+					return
+				}
 				log.Println("heartbeat err:", err, "switch connection")
 				err = c.switchConnection(ctx)
 				if err != nil {
+					if err == errCliIsClosing {
+						return
+					}
 					log.Println(err)
 					os.Exit(1)
 				}
@@ -113,16 +119,18 @@ func (c *activeClient) logout(ctx context.Context) error {
 }
 
 // TODO new了但没注册
-func (c *activeClient) close(reason bool) {
-	if !reason {
+func (c *activeClient) close() {
+
+	if c.closeChan != nil {
 		close(c.closeChan)
 	}
-	c.basicClient.close(reason)
+	c.basicClient.close(false)
+
 }
 
 func (c *activeClient) Close() {
 	if c.isClosed.Swap(true) {
 		return
 	}
-	c.close(false)
+	c.close()
 }

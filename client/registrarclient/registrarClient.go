@@ -9,19 +9,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"io"
 	"log"
-	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 const (
-	HEARTBEATOFFSET  = 1
-	DEFAULTLEASETIME = 10
-	BufSize          = 10
+	HEARTBEATOFFSET = 1
+	BufSize         = 10
 )
 
 var (
 	errServerUnavailable = errors.New("no server address is available")
+	errCliIsClosing      = errors.New("client is closing")
 )
 
 type RegistrarClient interface {
@@ -39,10 +39,16 @@ type basicClient struct {
 
 	cli      pb.EtcdRegistrarClient
 	conn     *grpc.ClientConn
+	connMu   sync.Mutex
 	isClosed atomic.Bool
 }
 
 func (c *basicClient) newGrpcConn(addr string) error {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	if c.isClosed.Load() {
+		return errCliIsClosing
+	}
 	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
 		grpc.WithTimeout(time.Second))
@@ -69,15 +75,20 @@ func (c *basicClient) logout(ctx context.Context) error {
 
 // reason - whether the close is because client error
 func (c *basicClient) close(reason bool) {
-	if c.cli != nil && !reason {
-		if err := c.logout(context.Background()); err != nil {
-			log.Println("logout err:", err)
-		}
-	}
+	//if c.cli != nil && !reason {
+	//	if err := c.logout(context.Background()); err != nil {
+	//		log.Println("logout err:", err)
+	//	}
+	//}
+	c.connMu.Lock()
 	if c.conn != nil {
 		if err := c.conn.Close(); err != nil {
-			log.Println("conn close err:", err)
+			log.Println(c.isClosed.Load(), reason, "conn close err:", err)
 		}
+	}
+	c.connMu.Unlock()
+	if !reason {
+		time.Sleep(time.Second * 1)
 	}
 }
 
@@ -139,7 +150,7 @@ func NewRegistrarClient(opts *ClientOpts) RegistrarClient {
 		err := c.switchConnection(context.Background())
 		if err != nil {
 			log.Println(err)
-			os.Exit(1)
+			panic(err)
 		}
 		return c
 	} else {
@@ -159,13 +170,16 @@ func NewRegistrarClient(opts *ClientOpts) RegistrarClient {
 		err := c.switchConnection(context.Background())
 		if err != nil {
 			log.Println(err)
-			os.Exit(1)
+			panic(err)
 		}
 		return c
 	}
 }
 
 func (c *basicClient) switchConnection(ctx context.Context) error {
+	if c.isClosed.Load() {
+		return errCliIsClosing
+	}
 	c.close(true)
 	l := len(c.options.address)
 	oft := 0
